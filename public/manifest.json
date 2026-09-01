@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Hyperion2",
+  "description": "A fast fuzzy Chrome tab manager.",
+  "version": "0.1.0",
+  "action": {
+    "default_title": "Open Hyperion2",
+    "default_popup": "index.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+K",
+        "mac": "Command+Shift+K"
+      },
+      "description": "Open Hyperion2"
+    }
+  },
+  "permissions": ["storage", "tabs"]
+}
