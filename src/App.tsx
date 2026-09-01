@@ -2,7 +2,6 @@ import Fuse from "fuse.js";
 import {
   ArrowLeft,
   ArrowUpRight,
-  ExternalLink,
   Loader2,
   Pin,
   Search,
@@ -48,6 +47,26 @@ function App() {
       window.removeEventListener("popstate", handlePopState);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isDetached) {
+      return;
+    }
+
+    const handleWindowBlur = () => {
+      window.setTimeout(() => {
+        if (!document.hasFocus()) {
+          window.close();
+        }
+      }, 0);
+    };
+
+    window.addEventListener("blur", handleWindowBlur);
+
+    return () => {
+      window.removeEventListener("blur", handleWindowBlur);
+    };
+  }, [isDetached]);
 
   const navigateTo: NavigateTo = (nextPath) => {
     window.history.pushState({}, "", nextPath);
@@ -200,31 +219,6 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
 
   return (
     <div className="flex min-h-[inherit] flex-col">
-      <header className="border-b border-border bg-card/80 px-4 py-3 backdrop-blur">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-base font-semibold tracking-tight">
-              Hyperion2
-            </h1>
-            <p className="text-xs text-muted-foreground">
-              Fast fuzzy tab switching
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              void openDetachedWindow();
-              window.close();
-            }}
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-            Detach
-          </Button>
-        </div>
-      </header>
-
       <section className="space-y-3 p-4">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
