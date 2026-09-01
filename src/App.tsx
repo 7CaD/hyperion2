@@ -13,6 +13,7 @@ import type { KeyboardEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
+import { ScrollArea } from "./components/ui/scroll-area";
 import {
   activateTab,
   closeTab,
@@ -78,7 +79,7 @@ function App() {
   return (
     <main
       className={cn(
-        "min-h-[392px] bg-background text-foreground",
+        "h-screen min-h-[470.4px] bg-background text-foreground",
         isDetached && "min-h-screen",
       )}
     >
@@ -218,8 +219,8 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   };
 
   return (
-    <div className="flex min-h-[inherit] flex-col">
-      <section className="space-y-3 p-4">
+    <div className="flex h-full min-h-0 flex-col">
+      <section className="flex-none space-y-3 p-4">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -230,7 +231,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
               setSelectedIndex(0);
             }}
             onKeyDown={handleKeyDown}
-            className="h-12 pl-9 pr-24 text-base"
+            className="h-9 pl-8 pr-16 text-sm"
             placeholder="Search tabs or type /settings..."
             spellCheck={false}
           />
@@ -243,7 +244,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
         </div>
       </section>
 
-      <section className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+      <ScrollArea className="min-h-0 flex-1" contentClassName="px-2 pb-2">
         {isLoading && tabs.length === 0 ? (
           <div className="mx-2 rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
             Loading tabs in the background...
@@ -346,9 +347,9 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
             </button>
           ) : null}
         </div>
-      </section>
+      </ScrollArea>
 
-      <footer className="border-t border-border px-4 py-2 text-xs text-muted-foreground">
+      <footer className="flex-none border-t border-border px-4 py-2 text-xs text-muted-foreground">
         Use arrow keys to navigate, Enter to switch.
       </footer>
     </div>
@@ -378,7 +379,7 @@ function SettingsPage({ navigateTo }: { navigateTo: NavigateTo }) {
   };
 
   return (
-    <div className="flex min-h-[inherit] flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <header className="border-b border-border bg-card/80 px-4 py-3 backdrop-blur">
         <div className="flex items-center justify-between gap-3">
           <div>
