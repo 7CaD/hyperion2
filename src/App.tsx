@@ -4,7 +4,6 @@ import {
   ArrowUpRight,
   Loader2,
   Pin,
-  Search,
   Settings,
   Volume2,
   X,
@@ -228,9 +227,8 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <section className="flex-none space-y-3 p-4">
+      <section className="flex-none border-b border-border/70">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             ref={inputRef}
             value={query}
@@ -239,11 +237,11 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
               setSelectedIndex(0);
             }}
             onKeyDown={handleKeyDown}
-            className="h-9 pl-8 pr-16 text-sm"
+            className="h-16 rounded-none border-0 bg-transparent px-5 py-1 pr-24 text-xl font-medium shadow-none ring-offset-transparent placeholder:text-lg placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
             placeholder="Search tabs or type /settings..."
             spellCheck={false}
           />
-          <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 text-xs text-muted-foreground">
+          <div className="absolute right-5 top-1/2 flex -translate-y-1/2 items-center gap-1 text-sm font-medium text-muted-foreground">
             {isLoading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : null}
@@ -252,7 +250,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
         </div>
       </section>
 
-      <ScrollArea className="min-h-0 flex-1" contentClassName="px-2 pb-2">
+      <ScrollArea className="min-h-0 flex-1" contentClassName="px-2 pb-2 pt-1">
         {isLoading && tabs.length === 0 ? (
           <div className="mx-2 rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
             Loading tabs in the background...
