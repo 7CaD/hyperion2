@@ -2,6 +2,7 @@ import Fuse from "fuse.js";
 import {
   ArrowLeft,
   ArrowUpRight,
+  Copy,
   Loader2,
   Pin,
   Settings,
@@ -27,9 +28,16 @@ import {
 import { cn } from "./lib/utils";
 
 const SETTINGS_COMMAND = "/settings";
+const DUPLICATES_COMMAND = "/duplicates";
 const MOST_FREQUENT_TAB_LIMIT = 3;
 
 type NavigateTo = (path: string) => void;
+type DuplicateTabGroup = {
+  count: number;
+  tab: ManagedTab;
+  tabs: ManagedTab[];
+  url: string;
+};
 
 function getCurrentPath() {
   return window.location.pathname;
@@ -163,8 +171,10 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
 
   const trimmedQuery = query.trim();
   const isBaseState = trimmedQuery.length === 0;
+  const isDuplicatesQuery = trimmedQuery === DUPLICATES_COMMAND;
   const showSettingsCommand =
     trimmedQuery.length > 0 &&
+    !isDuplicatesQuery &&
     (SETTINGS_COMMAND.startsWith(trimmedQuery) ||
       trimmedQuery.startsWith(SETTINGS_COMMAND));
 
@@ -189,9 +199,88 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     [tabFrequencies, tabs],
   );
 
+  const duplicateUrlCounts = useMemo(
+    () =>
+      tabs.reduce<Record<string, number>>((counts, tab) => {
+        counts[tab.url] = (counts[tab.url] ?? 0) + 1;
+        return counts;
+      }, {}),
+    [tabs],
+  );
+
+  const duplicateTabGroups = useMemo(() => {
+    const groupsByUrl = tabs.reduce<Record<string, ManagedTab[]>>(
+      (groups, tab) => {
+        groups[tab.url] = [...(groups[tab.url] ?? []), tab];
+        return groups;
+      },
+      {},
+    );
+
+    return Object.entries(groupsByUrl)
+      .filter(([, groupTabs]) => groupTabs.length > 1)
+      .map<DuplicateTabGroup>(([url, groupTabs]) => {
+        const sortedGroupTabs = [...groupTabs].sort(
+          (a, b) =>
+            Number(b.active) - Number(a.active) ||
+            (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0) ||
+            b.windowId - a.windowId ||
+            a.index - b.index,
+        );
+
+        return {
+          count: sortedGroupTabs.length,
+          tab: sortedGroupTabs[0],
+          tabs: sortedGroupTabs,
+          url,
+        };
+      })
+      .sort((a, b) => {
+        const countDifference =
+          duplicateUrlCounts[b.url] - duplicateUrlCounts[a.url];
+
+        return (
+          countDifference ||
+          a.url.localeCompare(b.url) ||
+          Number(b.tab.active) - Number(a.tab.active) ||
+          (b.tab.lastAccessed ?? 0) - (a.tab.lastAccessed ?? 0) ||
+          b.tab.windowId - a.tab.windowId ||
+          a.tab.index - b.tab.index
+        );
+      });
+  }, [duplicateUrlCounts, tabs]);
+
+  const duplicateTabs = useMemo(
+    () => duplicateTabGroups.map((group) => group.tab),
+    [duplicateTabGroups],
+  );
+
+  const duplicateTabCount = useMemo(
+    () => duplicateTabGroups.reduce((count, group) => count + group.count, 0),
+    [duplicateTabGroups],
+  );
+
+  const showDuplicatesSummary = isBaseState && duplicateTabGroups.length > 0;
+
+  const duplicateGroupsByUrl = useMemo(
+    () =>
+      duplicateTabGroups.reduce<Record<string, DuplicateTabGroup>>(
+        (groups, group) => {
+          groups[group.url] = group;
+          return groups;
+        },
+        {},
+      ),
+    [duplicateTabGroups],
+  );
+
   const visibleTabs = useMemo(() => {
     if (isBaseState) {
       return mostFrequentTabs;
+    }
+
+    if (isDuplicatesQuery) {
+      return duplicateTabs;
     }
 
     if (showSettingsCommand) {
@@ -199,22 +288,45 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     }
 
     return fuse.search(trimmedQuery).map((result) => result.item);
-  }, [fuse, isBaseState, mostFrequentTabs, showSettingsCommand, trimmedQuery]);
+  }, [
+    duplicateTabs,
+    fuse,
+    isBaseState,
+    isDuplicatesQuery,
+    mostFrequentTabs,
+    showSettingsCommand,
+    trimmedQuery,
+  ]);
 
-  const itemCount = visibleTabs.length + Number(showSettingsCommand);
+  const itemCount =
+    visibleTabs.length +
+    Number(showDuplicatesSummary) +
+    Number(showSettingsCommand);
   const activeIndex =
     itemCount === 0 ? 0 : Math.min(selectedIndex, itemCount - 1);
+  const isDuplicatesSummarySelected =
+    showDuplicatesSummary && activeIndex === visibleTabs.length;
   const isSettingsCommandSelected =
-    showSettingsCommand && activeIndex === visibleTabs.length;
+    showSettingsCommand &&
+    activeIndex === visibleTabs.length + Number(showDuplicatesSummary);
 
   const selectedTab = visibleTabs[activeIndex];
+  const selectedDuplicateGroup =
+    isDuplicatesQuery && selectedTab
+      ? duplicateGroupsByUrl[selectedTab.url]
+      : undefined;
 
   useLayoutEffect(() => {
     selectedItemRef.current?.scrollIntoView({
       block: "nearest",
       inline: "nearest",
     });
-  }, [activeIndex, isSettingsCommandSelected, selectedTab]);
+  }, [
+    activeIndex,
+    isDuplicatesSummarySelected,
+    isSettingsCommandSelected,
+    selectedTab,
+  ]);
 
   const handleActivate = async (tab: ManagedTab) => {
     await activateTab(tab);
@@ -224,6 +336,18 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   const handleClose = async (tabId: number) => {
     await closeTab(tabId);
     setTabs((currentTabs) => currentTabs.filter((tab) => tab.id !== tabId));
+  };
+
+  const handleMergeDuplicates = async (group: DuplicateTabGroup) => {
+    const tabIdsToClose = group.tabs
+      .filter((tab) => tab.id !== group.tab.id)
+      .map((tab) => tab.id);
+
+    await Promise.all(tabIdsToClose.map((tabId) => closeTab(tabId)));
+
+    setTabs((currentTabs) =>
+      currentTabs.filter((tab) => !tabIdsToClose.includes(tab.id)),
+    );
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -243,6 +367,19 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     if (event.key === "Enter" && isSettingsCommandSelected) {
       event.preventDefault();
       navigateTo(SETTINGS_COMMAND);
+      return;
+    }
+
+    if (event.key === "Enter" && isDuplicatesSummarySelected) {
+      event.preventDefault();
+      setQuery(DUPLICATES_COMMAND);
+      setSelectedIndex(0);
+      return;
+    }
+
+    if (event.key === "Enter" && selectedDuplicateGroup) {
+      event.preventDefault();
+      void handleMergeDuplicates(selectedDuplicateGroup);
       return;
     }
 
@@ -305,6 +442,13 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
               ref={index === activeIndex ? selectedItemRef : undefined}
               type="button"
               onClick={() => {
+                const duplicateGroup = duplicateGroupsByUrl[tab.url];
+
+                if (isDuplicatesQuery && duplicateGroup) {
+                  void handleMergeDuplicates(duplicateGroup);
+                  return;
+                }
+
                 void handleActivate(tab);
               }}
               onMouseEnter={() => setSelectedIndex(index)}
@@ -342,31 +486,89 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
                 </span>
               </span>
 
-              <span className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  aria-label={`Close ${tab.title}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    void handleClose(tab.id);
-                  }}
+              <span className="flex items-center gap-1">
+                {isDuplicatesQuery ? (
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                    {duplicateUrlCounts[tab.url]}
+                  </span>
+                ) : null}
+                {isDuplicatesQuery && index === activeIndex ? (
+                  <kbd className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    Merge
+                  </kbd>
+                ) : null}
+                <span
+                  className={cn(
+                    "flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100",
+                    isDuplicatesQuery && "hidden",
+                  )}
                 >
-                  <X className="h-3.5 w-3.5" />
-                </Button>
+                  <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    aria-label={`Close ${tab.title}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleClose(tab.id);
+                    }}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </span>
               </span>
             </button>
           ))}
+
+          {showDuplicatesSummary ? (
+            <button
+              ref={isDuplicatesSummarySelected ? selectedItemRef : undefined}
+              type="button"
+              onClick={() => {
+                setQuery(DUPLICATES_COMMAND);
+                setSelectedIndex(0);
+              }}
+              onMouseEnter={() => setSelectedIndex(visibleTabs.length)}
+              className={cn(
+                "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
+                isDuplicatesSummarySelected
+                  ? "bg-accent text-accent-foreground"
+                  : "hover:bg-accent/60",
+              )}
+            >
+              <span className="min-w-0">
+                <span className="flex items-center gap-2">
+                  <Copy className="h-4 w-4 flex-none text-muted-foreground" />
+                  <span className="truncate text-sm font-medium">
+                    Duplicated tabs
+                  </span>
+                </span>
+                <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
+                  Show tabs with the exact same URL
+                </span>
+              </span>
+
+              <span className="flex items-center gap-2">
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  {duplicateTabCount}
+                </span>
+                <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+              </span>
+            </button>
+          ) : null}
 
           {showSettingsCommand ? (
             <button
               ref={isSettingsCommandSelected ? selectedItemRef : undefined}
               type="button"
               onClick={() => navigateTo(SETTINGS_COMMAND)}
-              onMouseEnter={() => setSelectedIndex(visibleTabs.length)}
+              onMouseEnter={() =>
+                setSelectedIndex(
+                  visibleTabs.length + Number(showDuplicatesSummary),
+                )
+              }
               className={cn(
                 "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
                 isSettingsCommandSelected
