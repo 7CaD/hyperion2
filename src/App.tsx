@@ -94,6 +94,7 @@ function App() {
 
 function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const selectedItemRef = useRef<HTMLButtonElement>(null);
   const [tabs, setTabs] = useState<ManagedTab[]>([]);
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -182,6 +183,13 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
 
   const selectedTab = visibleTabs[activeIndex];
 
+  useLayoutEffect(() => {
+    selectedItemRef.current?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [activeIndex, isSettingsCommandSelected, selectedTab]);
+
   const handleActivate = async (tab: ManagedTab) => {
     await activateTab(tab);
     window.close();
@@ -261,6 +269,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
           {visibleTabs.map((tab, index) => (
             <button
               key={tab.id}
+              ref={index === activeIndex ? selectedItemRef : undefined}
               type="button"
               onClick={() => {
                 void handleActivate(tab);
@@ -321,6 +330,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
 
           {showSettingsCommand ? (
             <button
+              ref={isSettingsCommandSelected ? selectedItemRef : undefined}
               type="button"
               onClick={() => navigateTo(SETTINGS_COMMAND)}
               onMouseEnter={() => setSelectedIndex(visibleTabs.length)}
