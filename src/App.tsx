@@ -13,6 +13,7 @@ import type { KeyboardEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
+import { Kbd, KbdGroup } from "./components/ui/kbd";
 import { ScrollArea } from "./components/ui/scroll-area";
 import {
   activateTab,
@@ -595,7 +596,11 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
       </ScrollArea>
 
       <footer className="flex-none border-t border-border px-4 py-2 text-xs text-muted-foreground">
-        Use arrow keys to navigate, Enter to switch.
+        <KbdGroup>
+          <Kbd>↑</Kbd>
+          <Kbd>↓</Kbd>
+        </KbdGroup>{" "}
+        Navigate tabs <Kbd>Enter</Kbd> Execute Action
       </footer>
     </div>
   );
