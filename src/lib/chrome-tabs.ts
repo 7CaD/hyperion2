@@ -11,6 +11,15 @@ export type ManagedTab = {
   windowId: number;
 };
 
+type TabFrequencyRecord = {
+  count: number;
+  lastActivatedAt: number;
+};
+
+export type TabFrequencies = Record<string, TabFrequencyRecord>;
+
+const TAB_FREQUENCIES_KEY = "tabFrequencies";
+
 const isExtensionRuntime = () =>
   typeof chrome !== "undefined" && Boolean(chrome.runtime?.id);
 
@@ -56,6 +65,7 @@ export async function activateTab(tab: ManagedTab) {
     return;
   }
 
+  await incrementTabFrequency(tab.url);
   await chrome.windows.update(tab.windowId, { focused: true });
   await chrome.tabs.update(tab.id, { active: true });
 }
@@ -86,6 +96,37 @@ export async function setPreferDetached(preferDetached: boolean) {
   }
 
   await chrome.storage.local.set({ preferDetached });
+}
+
+export async function getTabFrequencies(): Promise<TabFrequencies> {
+  if (!isExtensionRuntime() || !chrome.storage?.local) {
+    return {};
+  }
+
+  const result = await chrome.storage.local.get({
+    [TAB_FREQUENCIES_KEY]: {},
+  });
+
+  return result[TAB_FREQUENCIES_KEY] as TabFrequencies;
+}
+
+async function incrementTabFrequency(url: string) {
+  if (!url || !isExtensionRuntime() || !chrome.storage?.local) {
+    return;
+  }
+
+  const frequencies = await getTabFrequencies();
+  const current = frequencies[url] ?? { count: 0, lastActivatedAt: 0 };
+
+  await chrome.storage.local.set({
+    [TAB_FREQUENCIES_KEY]: {
+      ...frequencies,
+      [url]: {
+        count: current.count + 1,
+        lastActivatedAt: Date.now(),
+      },
+    },
+  });
 }
 
 export async function openDetachedWindow() {

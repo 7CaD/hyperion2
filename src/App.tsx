@@ -18,13 +18,16 @@ import {
   closeTab,
   getAllTabs,
   getPreferDetached,
+  getTabFrequencies,
   openDetachedWindow,
   setPreferDetached,
+  type TabFrequencies,
   type ManagedTab,
 } from "./lib/chrome-tabs";
 import { cn } from "./lib/utils";
 
 const SETTINGS_COMMAND = "/settings";
+const MOST_FREQUENT_TAB_LIMIT = 3;
 
 type NavigateTo = (path: string) => void;
 
@@ -95,6 +98,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const selectedItemRef = useRef<HTMLButtonElement>(null);
   const [tabs, setTabs] = useState<ManagedTab[]>([]);
+  const [tabFrequencies, setTabFrequencies] = useState<TabFrequencies>({});
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -126,10 +130,11 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   useEffect(() => {
     let isCurrent = true;
 
-    getAllTabs()
-      .then((nextTabs) => {
+    Promise.all([getAllTabs(), getTabFrequencies()])
+      .then(([nextTabs, nextTabFrequencies]) => {
         if (isCurrent) {
           setTabs(nextTabs);
+          setTabFrequencies(nextTabFrequencies);
         }
       })
       .finally(() => {
@@ -157,14 +162,36 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   );
 
   const trimmedQuery = query.trim();
+  const isBaseState = trimmedQuery.length === 0;
   const showSettingsCommand =
     trimmedQuery.length > 0 &&
     (SETTINGS_COMMAND.startsWith(trimmedQuery) ||
       trimmedQuery.startsWith(SETTINGS_COMMAND));
 
+  const mostFrequentTabs = useMemo(
+    () =>
+      [...tabs]
+        .sort((a, b) => {
+          const aFrequency = tabFrequencies[a.url];
+          const bFrequency = tabFrequencies[b.url];
+
+          return (
+            (bFrequency?.count ?? 0) - (aFrequency?.count ?? 0) ||
+            (bFrequency?.lastActivatedAt ?? 0) -
+              (aFrequency?.lastActivatedAt ?? 0) ||
+            Number(b.active) - Number(a.active) ||
+            (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0) ||
+            b.windowId - a.windowId ||
+            a.index - b.index
+          );
+        })
+        .slice(0, MOST_FREQUENT_TAB_LIMIT),
+    [tabFrequencies, tabs],
+  );
+
   const visibleTabs = useMemo(() => {
-    if (!trimmedQuery) {
-      return tabs;
+    if (isBaseState) {
+      return mostFrequentTabs;
     }
 
     if (showSettingsCommand) {
@@ -172,7 +199,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     }
 
     return fuse.search(trimmedQuery).map((result) => result.item);
-  }, [fuse, showSettingsCommand, tabs, trimmedQuery]);
+  }, [fuse, isBaseState, mostFrequentTabs, showSettingsCommand, trimmedQuery]);
 
   const itemCount = visibleTabs.length + Number(showSettingsCommand);
   const activeIndex =
@@ -261,6 +288,14 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
           <div className="mx-2 rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
             No matching tabs.
           </div>
+        ) : null}
+
+        {!isLoading && isBaseState && visibleTabs.length > 0 ? (
+          <section className="px-2 pb-2 pt-1">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Most frequented tabs
+            </h2>
+          </section>
         ) : null}
 
         <div className="space-y-1">
