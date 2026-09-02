@@ -19,5 +19,5 @@
       "description": "Open Hyperion2"
     }
   },
-  "permissions": ["storage", "system.display", "tabs"]
+  "permissions": ["storage", "system.display", "tabGroups", "tabs"]
 }

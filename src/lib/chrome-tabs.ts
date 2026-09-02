@@ -2,6 +2,8 @@ export type ManagedTab = {
   active: boolean;
   audible: boolean;
   favIconUrl?: string;
+  group?: ManagedTabGroup;
+  groupId?: number;
   id: number;
   index: number;
   lastAccessed?: number;
@@ -9,6 +11,12 @@ export type ManagedTab = {
   title: string;
   url: string;
   windowId: number;
+};
+
+export type ManagedTabGroup = {
+  color: chrome.tabGroups.TabGroup["color"];
+  id: number;
+  title?: string;
 };
 
 type TabFrequencyRecord = {
@@ -32,6 +40,10 @@ const toManagedTab = (tab: chrome.tabs.Tab): ManagedTab | null => {
     active: Boolean(tab.active),
     audible: Boolean(tab.audible),
     favIconUrl: tab.favIconUrl,
+    groupId:
+      typeof tab.groupId === "number" && tab.groupId !== -1
+        ? tab.groupId
+        : undefined,
     id: tab.id,
     index: tab.index ?? 0,
     lastAccessed: tab.lastAccessed,
@@ -42,16 +54,52 @@ const toManagedTab = (tab: chrome.tabs.Tab): ManagedTab | null => {
   };
 };
 
+async function getTabGroupsById(): Promise<Record<number, ManagedTabGroup>> {
+  if (!isExtensionRuntime() || !chrome.tabGroups?.query) {
+    return {};
+  }
+
+  try {
+    const tabGroups = await chrome.tabGroups.query({});
+
+    return tabGroups.reduce<Record<number, ManagedTabGroup>>(
+      (groupsById, group) => {
+        groupsById[group.id] = {
+          color: group.color,
+          id: group.id,
+          title: group.title?.trim() || undefined,
+        };
+        return groupsById;
+      },
+      {},
+    );
+  } catch {
+    return {};
+  }
+}
+
 export async function getAllTabs(): Promise<ManagedTab[]> {
   if (!isExtensionRuntime() || !chrome.tabs?.query) {
     return [];
   }
 
   const tabs = await chrome.tabs.query({});
-
-  return tabs
+  const managedTabs = tabs
     .map(toManagedTab)
-    .filter((tab): tab is ManagedTab => tab !== null)
+    .filter((tab): tab is ManagedTab => tab !== null);
+  const hasGroupedTabs = managedTabs.some(
+    (tab) => typeof tab.groupId === "number",
+  );
+  const tabGroupsById = hasGroupedTabs ? await getTabGroupsById() : {};
+
+  return managedTabs
+    .map((tab) => ({
+      ...tab,
+      group:
+        typeof tab.groupId === "number"
+          ? tabGroupsById[tab.groupId]
+          : undefined,
+    }))
     .sort(
       (a, b) =>
         Number(b.active) - Number(a.active) ||

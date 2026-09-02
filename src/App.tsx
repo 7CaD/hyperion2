@@ -25,12 +25,24 @@ import {
   setPreferDetached,
   type TabFrequencies,
   type ManagedTab,
+  type ManagedTabGroup,
 } from "./lib/chrome-tabs";
 import { cn } from "./lib/utils";
 
 const SETTINGS_COMMAND = "/settings";
 const DUPLICATES_COMMAND = "/duplicates";
 const MOST_FREQUENT_TAB_LIMIT = 3;
+const TAB_GROUP_BADGE_CLASSES: Record<ManagedTabGroup["color"], string> = {
+  blue: "bg-blue-500 text-blue-700",
+  cyan: "bg-cyan-500 text-cyan-700",
+  green: "bg-green-300 text-green-700",
+  grey: "bg-gray-300 text-gray-800",
+  orange: "bg-orange-500 text-orange-700",
+  pink: "bg-pink-400 text-pink-900",
+  purple: "bg-purple-400 text-purple-800",
+  red: "bg-red-500 text-red-700",
+  yellow: "bg-yellow-200 text-yellow-900",
+};
 
 type NavigateTo = (path: string) => void;
 type DuplicateTabGroup = {
@@ -66,6 +78,20 @@ const scheduleAsyncWork = (work: () => void) => {
 
   return () => window.clearTimeout(timeoutId);
 };
+
+function TabGroupBadge({ group }: { group: ManagedTabGroup }) {
+  return (
+    <span
+      className={cn(
+        "max-w-24 flex-none truncate rounded-[4px] border-none px-1.5 py-1 text-[11px] font-medium leading-none",
+        TAB_GROUP_BADGE_CLASSES[group.color],
+      )}
+      title={group.title || "Untitled group"}
+    >
+      {group.title || "Group"}
+    </span>
+  );
+}
 
 const compareTabsByPosition = (a: ManagedTab, b: ManagedTab) =>
   Number(b.active) - Number(a.active) ||
@@ -311,6 +337,10 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
           : new Fuse(tabs, {
               includeScore: true,
               keys: [
+                {
+                  name: "group.title",
+                  weight: 2,
+                },
                 { name: "title", weight: 0.7 },
                 { name: "url", weight: 0.3 },
               ],
@@ -574,6 +604,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
                   ) : (
                     <span className="h-4 w-4 flex-none rounded-sm bg-muted" />
                   )}
+                  {tab.group ? <TabGroupBadge group={tab.group} /> : null}
                   <span className="truncate text-sm font-medium">
                     {tab.title}
                   </span>
