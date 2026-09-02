@@ -22,6 +22,7 @@ import {
   getAllTabs,
   getPreferDetached,
   getTabFrequencies,
+  initializeMissingTabFrequencies,
   openDetachedWindow,
   setPreferDetached,
   suspendTabs,
@@ -35,6 +36,7 @@ const SETTINGS_COMMAND = "/settings";
 const DUPLICATES_COMMAND = "/duplicates";
 const LEAST_FREQUENTED_COMMAND = "/least-frequented";
 const MOST_FREQUENT_TAB_LIMIT = 3;
+const LEAST_FREQUENTED_LAST_SELECTED_THRESHOLD_MS = 3 * 24 * 60 * 60 * 1000;
 const commandMatchesQuery = (command: string, query: string) =>
   query === "/" || command.startsWith(query);
 const TAB_GROUP_BADGE_CLASSES: Record<ManagedTabGroup["color"], string> = {
@@ -159,12 +161,24 @@ const compareTabsByLeastFrequency =
 const getLeastFrequentSuspendableTabs = (
   tabs: ManagedTab[],
   tabFrequencies: TabFrequencies,
-) =>
-  [...tabs]
-    .filter(
-      (tab) => !tab.active && !tab.pinned && !tab.audible && !tab.discarded,
-    )
+) => {
+  const lastSelectedCutoff =
+    Date.now() - LEAST_FREQUENTED_LAST_SELECTED_THRESHOLD_MS;
+
+  return [...tabs]
+    .filter((tab) => {
+      const lastSelectedAt = tabFrequencies[tab.url]?.lastActivatedAt ?? 0;
+
+      return (
+        !tab.active &&
+        !tab.pinned &&
+        !tab.audible &&
+        !tab.discarded &&
+        lastSelectedAt < lastSelectedCutoff
+      );
+    })
     .sort(compareTabsByLeastFrequency(tabFrequencies));
+};
 
 const getDuplicateTabData = (tabs: ManagedTab[]): DuplicateTabData => {
   const groupsByUrl = tabs.reduce<Record<string, ManagedTab[]>>(
@@ -336,10 +350,15 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     let isCurrent = true;
 
     Promise.all([getAllTabs(), getTabFrequencies()])
-      .then(([nextTabs, nextTabFrequencies]) => {
+      .then(async ([nextTabs, nextTabFrequencies]) => {
+        const initializedTabFrequencies = await initializeMissingTabFrequencies(
+          nextTabs,
+          nextTabFrequencies,
+        );
+
         if (isCurrent) {
           setTabs(nextTabs);
-          setTabFrequencies(nextTabFrequencies);
+          setTabFrequencies(initializedTabFrequencies);
         }
       })
       .finally(() => {
@@ -650,7 +669,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
               setSelectedIndex(0);
             }}
             onKeyDown={handleKeyDown}
-            className="h-16 rounded-none border-0 bg-transparent px-5 py-1 pr-24 text-xl font-medium shadow-none ring-offset-transparent placeholder:text-lg placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
+            className="h-16 rounded-none border-0 bg-transparent px-5 py-1 pr-24 text-md font-medium shadow-none ring-offset-transparent placeholder:text-lg placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
             placeholder="Search tabs or type / for commands..."
             spellCheck={false}
           />

@@ -177,6 +177,38 @@ export async function getTabFrequencies(): Promise<TabFrequencies> {
   return result[TAB_FREQUENCIES_KEY] as TabFrequencies;
 }
 
+export async function initializeMissingTabFrequencies(
+  tabs: ManagedTab[],
+  tabFrequencies: TabFrequencies,
+): Promise<TabFrequencies> {
+  const now = Date.now();
+  const missingTabFrequencies = tabs.reduce<TabFrequencies>((records, tab) => {
+    if (!tab.url || tabFrequencies[tab.url] || records[tab.url]) {
+      return records;
+    }
+
+    records[tab.url] = { count: 0, lastActivatedAt: now };
+    return records;
+  }, {});
+
+  if (Object.keys(missingTabFrequencies).length === 0) {
+    return tabFrequencies;
+  }
+
+  const nextTabFrequencies = {
+    ...tabFrequencies,
+    ...missingTabFrequencies,
+  };
+
+  if (isExtensionRuntime() && chrome.storage?.local) {
+    await chrome.storage.local.set({
+      [TAB_FREQUENCIES_KEY]: nextTabFrequencies,
+    });
+  }
+
+  return nextTabFrequencies;
+}
+
 async function incrementTabFrequency(url: string) {
   if (!url || !isExtensionRuntime() || !chrome.storage?.local) {
     return;
