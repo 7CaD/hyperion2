@@ -1,5 +1,5 @@
 const DETACHED_URL = chrome.runtime.getURL("index.html?detached=1");
-const DETACHED_WIDTH = 792;
+const DETACHED_WIDTH = 871;
 const DETACHED_HEIGHT = 528;
 
 const getWindowBounds = (windowInfo) => ({

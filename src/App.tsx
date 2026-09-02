@@ -165,7 +165,8 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
           { name: "title", weight: 0.7 },
           { name: "url", weight: 0.3 },
         ],
-        threshold: 0.35,
+        threshold: 0.6,
+        distance: 1000,
       }),
     [tabs],
   );
@@ -288,7 +289,16 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
       return [];
     }
 
-    return fuse.search(trimmedQuery).map((result) => result.item);
+    return fuse
+      .search(trimmedQuery)
+      .sort(
+        (a, b) =>
+          (a.score ?? Number.POSITIVE_INFINITY) -
+            (b.score ?? Number.POSITIVE_INFINITY) ||
+          (tabFrequencies[b.item.url]?.count ?? 0) -
+            (tabFrequencies[a.item.url]?.count ?? 0),
+      )
+      .map((result) => result.item);
   }, [
     duplicateTabs,
     fuse,
@@ -296,6 +306,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     isDuplicatesQuery,
     mostFrequentTabs,
     showSettingsCommand,
+    tabFrequencies,
     trimmedQuery,
   ]);
 
