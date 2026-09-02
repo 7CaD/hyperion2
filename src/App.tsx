@@ -39,6 +39,113 @@ type DuplicateTabGroup = {
   tabs: ManagedTab[];
   url: string;
 };
+type DuplicateTabData = {
+  groupsByUrl: Record<string, DuplicateTabGroup>;
+  tabCount: number;
+  tabGroups: DuplicateTabGroup[];
+  tabs: ManagedTab[];
+  urlCounts: Record<string, number>;
+};
+
+const emptyDuplicateTabData: DuplicateTabData = {
+  groupsByUrl: {},
+  tabCount: 0,
+  tabGroups: [],
+  tabs: [],
+  urlCounts: {},
+};
+
+const scheduleAsyncWork = (work: () => void) => {
+  if (window.requestIdleCallback && window.cancelIdleCallback) {
+    const idleCallbackId = window.requestIdleCallback(work, { timeout: 100 });
+
+    return () => window.cancelIdleCallback(idleCallbackId);
+  }
+
+  const timeoutId = window.setTimeout(work, 0);
+
+  return () => window.clearTimeout(timeoutId);
+};
+
+const compareTabsByPosition = (a: ManagedTab, b: ManagedTab) =>
+  Number(b.active) - Number(a.active) ||
+  (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0) ||
+  b.windowId - a.windowId ||
+  a.index - b.index;
+
+const compareTabsByFrequency =
+  (tabFrequencies: TabFrequencies) => (a: ManagedTab, b: ManagedTab) => {
+    const aFrequency = tabFrequencies[a.url];
+    const bFrequency = tabFrequencies[b.url];
+
+    return (
+      (bFrequency?.count ?? 0) - (aFrequency?.count ?? 0) ||
+      (bFrequency?.lastActivatedAt ?? 0) - (aFrequency?.lastActivatedAt ?? 0) ||
+      compareTabsByPosition(a, b)
+    );
+  };
+
+const getMostFrequentTabs = (
+  tabs: ManagedTab[],
+  tabFrequencies: TabFrequencies,
+) =>
+  [...tabs]
+    .sort(compareTabsByFrequency(tabFrequencies))
+    .slice(0, MOST_FREQUENT_TAB_LIMIT);
+
+const getDuplicateTabData = (tabs: ManagedTab[]): DuplicateTabData => {
+  const groupsByUrl = tabs.reduce<Record<string, ManagedTab[]>>(
+    (groups, tab) => {
+      groups[tab.url] ??= [];
+      groups[tab.url].push(tab);
+      return groups;
+    },
+    {},
+  );
+
+  const urlCounts = Object.fromEntries(
+    Object.entries(groupsByUrl).map(([url, groupTabs]) => [
+      url,
+      groupTabs.length,
+    ]),
+  );
+
+  const tabGroups = Object.entries(groupsByUrl)
+    .filter(([, groupTabs]) => groupTabs.length > 1)
+    .map<DuplicateTabGroup>(([url, groupTabs]) => {
+      const sortedGroupTabs = [...groupTabs].sort(compareTabsByPosition);
+
+      return {
+        count: sortedGroupTabs.length,
+        tab: sortedGroupTabs[0],
+        tabs: sortedGroupTabs,
+        url,
+      };
+    })
+    .sort((a, b) => {
+      const countDifference = urlCounts[b.url] - urlCounts[a.url];
+
+      return (
+        countDifference ||
+        a.url.localeCompare(b.url) ||
+        compareTabsByPosition(a.tab, b.tab)
+      );
+    });
+
+  return {
+    groupsByUrl: tabGroups.reduce<Record<string, DuplicateTabGroup>>(
+      (groups, group) => {
+        groups[group.url] = group;
+        return groups;
+      },
+      {},
+    ),
+    tabCount: tabGroups.reduce((count, group) => count + group.count, 0),
+    tabGroups,
+    tabs: tabGroups.map((group) => group.tab),
+    urlCounts,
+  };
+};
 
 function getCurrentPath() {
   return window.location.pathname;
@@ -49,6 +156,29 @@ function App() {
   const [isDetached] = useState(
     () => new URLSearchParams(window.location.search).get("detached") === "1",
   );
+
+  useEffect(() => {
+    if (isDetached) {
+      return;
+    }
+
+    let isCurrent = true;
+
+    getPreferDetached()
+      .then(async (preferDetached) => {
+        if (!isCurrent || !preferDetached) {
+          return;
+        }
+
+        await openDetachedWindow();
+        window.close();
+      })
+      .catch(() => {});
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [isDetached]);
 
   useEffect(() => {
     const handlePopState = () => setPath(getCurrentPath());
@@ -108,32 +238,23 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   const selectedItemRef = useRef<HTMLButtonElement>(null);
   const [tabs, setTabs] = useState<ManagedTab[]>([]);
   const [tabFrequencies, setTabFrequencies] = useState<TabFrequencies>({});
+  const [mostFrequentTabs, setMostFrequentTabs] = useState<ManagedTab[]>([]);
+  const [duplicateTabData, setDuplicateTabData] = useState<DuplicateTabData>(
+    emptyDuplicateTabData,
+  );
+  const [preparedTabs, setPreparedTabs] = useState(tabs);
+  const [preparedTabFrequencies, setPreparedTabFrequencies] =
+    useState(tabFrequencies);
+  const [fuseState, setFuseState] = useState<{
+    fuse: Fuse<ManagedTab> | null;
+    tabs: ManagedTab[];
+  }>({ fuse: null, tabs });
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   useLayoutEffect(() => {
     inputRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    let isCurrent = true;
-
-    getPreferDetached().then((preference) => {
-      if (!isCurrent) {
-        return;
-      }
-
-      const params = new URLSearchParams(window.location.search);
-      if (preference && params.get("detached") !== "1") {
-        openDetachedWindow();
-        window.close();
-      }
-    });
-
-    return () => {
-      isCurrent = false;
-    };
   }, []);
 
   useEffect(() => {
@@ -157,19 +278,56 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     };
   }, []);
 
-  const fuse = useMemo(
-    () =>
-      new Fuse(tabs, {
-        includeScore: true,
-        keys: [
-          { name: "title", weight: 0.7 },
-          { name: "url", weight: 0.3 },
-        ],
-        threshold: 0.6,
-        distance: 1000,
-      }),
-    [tabs],
-  );
+  useEffect(() => {
+    let isCurrent = true;
+
+    const cancel = scheduleAsyncWork(() => {
+      const nextMostFrequentTabs =
+        tabs.length === 0 ? [] : getMostFrequentTabs(tabs, tabFrequencies);
+      const nextDuplicateTabData =
+        tabs.length === 0 ? emptyDuplicateTabData : getDuplicateTabData(tabs);
+
+      if (isCurrent) {
+        setMostFrequentTabs(nextMostFrequentTabs);
+        setDuplicateTabData(nextDuplicateTabData);
+        setPreparedTabs(tabs);
+        setPreparedTabFrequencies(tabFrequencies);
+      }
+    });
+
+    return () => {
+      isCurrent = false;
+      cancel();
+    };
+  }, [tabFrequencies, tabs]);
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    const cancel = scheduleAsyncWork(() => {
+      const nextFuse =
+        tabs.length === 0
+          ? null
+          : new Fuse(tabs, {
+              includeScore: true,
+              keys: [
+                { name: "title", weight: 0.7 },
+                { name: "url", weight: 0.3 },
+              ],
+              threshold: 0.6,
+              distance: 1000,
+            });
+
+      if (isCurrent) {
+        setFuseState({ fuse: nextFuse, tabs });
+      }
+    });
+
+    return () => {
+      isCurrent = false;
+      cancel();
+    };
+  }, [tabs]);
 
   const trimmedQuery = query.trim();
   const isBaseState = trimmedQuery.length === 0;
@@ -179,102 +337,21 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     !isDuplicatesQuery &&
     (SETTINGS_COMMAND.startsWith(trimmedQuery) ||
       trimmedQuery.startsWith(SETTINGS_COMMAND));
-
-  const mostFrequentTabs = useMemo(
-    () =>
-      [...tabs]
-        .sort((a, b) => {
-          const aFrequency = tabFrequencies[a.url];
-          const bFrequency = tabFrequencies[b.url];
-
-          return (
-            (bFrequency?.count ?? 0) - (aFrequency?.count ?? 0) ||
-            (bFrequency?.lastActivatedAt ?? 0) -
-              (aFrequency?.lastActivatedAt ?? 0) ||
-            Number(b.active) - Number(a.active) ||
-            (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0) ||
-            b.windowId - a.windowId ||
-            a.index - b.index
-          );
-        })
-        .slice(0, MOST_FREQUENT_TAB_LIMIT),
-    [tabFrequencies, tabs],
-  );
-
-  const duplicateUrlCounts = useMemo(
-    () =>
-      tabs.reduce<Record<string, number>>((counts, tab) => {
-        counts[tab.url] = (counts[tab.url] ?? 0) + 1;
-        return counts;
-      }, {}),
-    [tabs],
-  );
-
-  const duplicateTabGroups = useMemo(() => {
-    const groupsByUrl = tabs.reduce<Record<string, ManagedTab[]>>(
-      (groups, tab) => {
-        groups[tab.url] = [...(groups[tab.url] ?? []), tab];
-        return groups;
-      },
-      {},
-    );
-
-    return Object.entries(groupsByUrl)
-      .filter(([, groupTabs]) => groupTabs.length > 1)
-      .map<DuplicateTabGroup>(([url, groupTabs]) => {
-        const sortedGroupTabs = [...groupTabs].sort(
-          (a, b) =>
-            Number(b.active) - Number(a.active) ||
-            (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0) ||
-            b.windowId - a.windowId ||
-            a.index - b.index,
-        );
-
-        return {
-          count: sortedGroupTabs.length,
-          tab: sortedGroupTabs[0],
-          tabs: sortedGroupTabs,
-          url,
-        };
-      })
-      .sort((a, b) => {
-        const countDifference =
-          duplicateUrlCounts[b.url] - duplicateUrlCounts[a.url];
-
-        return (
-          countDifference ||
-          a.url.localeCompare(b.url) ||
-          Number(b.tab.active) - Number(a.tab.active) ||
-          (b.tab.lastAccessed ?? 0) - (a.tab.lastAccessed ?? 0) ||
-          b.tab.windowId - a.tab.windowId ||
-          a.tab.index - b.tab.index
-        );
-      });
-  }, [duplicateUrlCounts, tabs]);
-
-  const duplicateTabs = useMemo(
-    () => duplicateTabGroups.map((group) => group.tab),
-    [duplicateTabGroups],
-  );
-
-  const duplicateTabCount = useMemo(
-    () => duplicateTabGroups.reduce((count, group) => count + group.count, 0),
-    [duplicateTabGroups],
-  );
-
-  const showDuplicatesSummary = isBaseState && duplicateTabGroups.length > 0;
-
-  const duplicateGroupsByUrl = useMemo(
-    () =>
-      duplicateTabGroups.reduce<Record<string, DuplicateTabGroup>>(
-        (groups, group) => {
-          groups[group.url] = group;
-          return groups;
-        },
-        {},
-      ),
-    [duplicateTabGroups],
-  );
+  const duplicateUrlCounts = duplicateTabData.urlCounts;
+  const duplicateTabs = duplicateTabData.tabs;
+  const duplicateTabCount = duplicateTabData.tabCount;
+  const duplicateGroupsByUrl = duplicateTabData.groupsByUrl;
+  const fuse = fuseState.tabs === tabs ? fuseState.fuse : null;
+  const isPreparingTabs =
+    preparedTabs !== tabs || preparedTabFrequencies !== tabFrequencies;
+  const isPreparingSearch = tabs.length > 0 && fuseState.tabs !== tabs;
+  const showDuplicatesSummary =
+    isBaseState && duplicateTabData.tabGroups.length > 0;
+  const isSearchQuery =
+    !isBaseState && !isDuplicatesQuery && !showSettingsCommand;
+  const isSearchPending = isSearchQuery && tabs.length > 0 && !fuse;
+  const isDuplicatesPending =
+    isDuplicatesQuery && tabs.length > 0 && isPreparingTabs;
 
   const visibleTabs = useMemo(() => {
     if (isBaseState) {
@@ -286,6 +363,10 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     }
 
     if (showSettingsCommand) {
+      return [];
+    }
+
+    if (!fuse) {
       return [];
     }
 
@@ -309,6 +390,8 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     tabFrequencies,
     trimmedQuery,
   ]);
+  const showBusyIndicator =
+    isLoading || isPreparingTabs || isPreparingSearch || isSearchPending;
 
   const itemCount =
     visibleTabs.length +
@@ -418,7 +501,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
             spellCheck={false}
           />
           <div className="absolute right-5 top-1/2 flex -translate-y-1/2 items-center gap-1 text-sm font-medium text-muted-foreground">
-            {isLoading ? (
+            {showBusyIndicator ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : null}
             <span>{tabs.length}</span>
@@ -433,7 +516,16 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
           </div>
         ) : null}
 
-        {!isLoading && itemCount === 0 ? (
+        {!isLoading && (isSearchPending || isDuplicatesPending) ? (
+          <div className="mx-2 rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+            Preparing tab data...
+          </div>
+        ) : null}
+
+        {!isLoading &&
+        !isSearchPending &&
+        !isDuplicatesPending &&
+        itemCount === 0 ? (
           <div className="mx-2 rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
             No matching tabs.
           </div>
