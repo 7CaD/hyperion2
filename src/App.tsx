@@ -463,7 +463,6 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
 
                 void handleActivate(tab);
               }}
-              onMouseEnter={() => setSelectedIndex(index)}
               className={cn(
                 "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
                 index === activeIndex
@@ -542,7 +541,6 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
                 setQuery(DUPLICATES_COMMAND);
                 setSelectedIndex(0);
               }}
-              onMouseEnter={() => setSelectedIndex(visibleTabs.length)}
               className={cn(
                 "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
                 isDuplicatesSummarySelected
@@ -576,11 +574,6 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
               ref={isSettingsCommandSelected ? selectedItemRef : undefined}
               type="button"
               onClick={() => navigateTo(SETTINGS_COMMAND)}
-              onMouseEnter={() =>
-                setSelectedIndex(
-                  visibleTabs.length + Number(showDuplicatesSummary),
-                )
-              }
               className={cn(
                 "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
                 isSettingsCommandSelected
