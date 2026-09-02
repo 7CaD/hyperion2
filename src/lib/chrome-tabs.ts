@@ -96,6 +96,15 @@ export async function setPreferDetached(preferDetached: boolean) {
   }
 
   await chrome.storage.local.set({ preferDetached });
+
+  try {
+    await chrome.runtime.sendMessage({
+      preferDetached,
+      type: "PREFER_DETACHED_CHANGED",
+    });
+  } catch {
+    // Storage is the source of truth; the background syncs from it when awakened.
+  }
 }
 
 export async function getTabFrequencies(): Promise<TabFrequencies> {

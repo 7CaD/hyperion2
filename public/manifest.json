@@ -4,8 +4,7 @@
   "description": "A fast fuzzy Chrome tab manager.",
   "version": "0.1.0",
   "action": {
-    "default_title": "Open Hyperion2",
-    "default_popup": "index.html"
+    "default_title": "Open Hyperion2"
   },
   "background": {
     "service_worker": "background.js",
