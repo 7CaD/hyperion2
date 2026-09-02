@@ -116,8 +116,8 @@ export async function activateTab(tab: ManagedTab) {
   }
 
   await incrementTabFrequency(tab.url);
-  await chrome.windows.update(tab.windowId, { focused: true });
   await chrome.tabs.update(tab.id, { active: true });
+  await chrome.windows.update(tab.windowId, { focused: true });
 }
 
 export async function closeTab(tabId: number) {
