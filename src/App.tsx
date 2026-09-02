@@ -35,6 +35,8 @@ const SETTINGS_COMMAND = "/settings";
 const DUPLICATES_COMMAND = "/duplicates";
 const LEAST_FREQUENTED_COMMAND = "/least-frequented";
 const MOST_FREQUENT_TAB_LIMIT = 3;
+const commandMatchesQuery = (command: string, query: string) =>
+  query === "/" || command.startsWith(query);
 const TAB_GROUP_BADGE_CLASSES: Record<ManagedTabGroup["color"], string> = {
   blue: "bg-blue-500 text-blue-700",
   cyan: "bg-cyan-500 text-cyan-700",
@@ -413,14 +415,11 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
 
   const trimmedQuery = query.trim();
   const isBaseState = trimmedQuery.length === 0;
+  const isCommandSearch = trimmedQuery.startsWith("/");
   const isDuplicatesQuery = trimmedQuery === DUPLICATES_COMMAND;
   const isLeastFrequentedQuery = trimmedQuery === LEAST_FREQUENTED_COMMAND;
   const showSettingsCommand =
-    trimmedQuery.length > 0 &&
-    !isDuplicatesQuery &&
-    !isLeastFrequentedQuery &&
-    (SETTINGS_COMMAND.startsWith(trimmedQuery) ||
-      trimmedQuery.startsWith(SETTINGS_COMMAND));
+    isCommandSearch && commandMatchesQuery(SETTINGS_COMMAND, trimmedQuery);
   const duplicateUrlCounts = duplicateTabData.urlCounts;
   const duplicateTabs = duplicateTabData.tabs;
   const duplicateTabCount = duplicateTabData.tabCount;
@@ -428,17 +427,26 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   const fuse = fuseState.tabs === tabs ? fuseState.fuse : null;
   const isPreparingTabs =
     preparedTabs !== tabs || preparedTabFrequencies !== tabFrequencies;
-  const isPreparingSearch = tabs.length > 0 && fuseState.tabs !== tabs;
+  const isCleanupCommandActive = isDuplicatesQuery || isLeastFrequentedQuery;
+  const isPreparingSearch =
+    !isCommandSearch && tabs.length > 0 && fuseState.tabs !== tabs;
   const showDuplicatesSummary =
-    isBaseState && duplicateTabData.tabGroups.length > 0;
+    (isCommandSearch &&
+      !isCleanupCommandActive &&
+      commandMatchesQuery(DUPLICATES_COMMAND, trimmedQuery)) ||
+    (isBaseState && duplicateTabData.tabGroups.length > 0);
   const showLeastFrequentedSummary =
-    isBaseState && leastFrequentSuspendableTabs.length > 0;
+    (isCommandSearch &&
+      !isCleanupCommandActive &&
+      commandMatchesQuery(LEAST_FREQUENTED_COMMAND, trimmedQuery)) ||
+    (isBaseState && leastFrequentSuspendableTabs.length > 0);
   const showSuspendLeastFrequentAction =
     isLeastFrequentedQuery && leastFrequentSuspendableTabs.length > 0;
   const showTabCleanupSection =
     showDuplicatesSummary || showLeastFrequentedSummary;
   const isSearchQuery =
     !isBaseState &&
+    !isCommandSearch &&
     !isDuplicatesQuery &&
     !isLeastFrequentedQuery &&
     !showSettingsCommand;
@@ -459,7 +467,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
       return leastFrequentSuspendableTabs;
     }
 
-    if (showSettingsCommand) {
+    if (isCommandSearch || showSettingsCommand) {
       return [];
     }
 
@@ -481,6 +489,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     duplicateTabs,
     fuse,
     isBaseState,
+    isCommandSearch,
     isDuplicatesQuery,
     isLeastFrequentedQuery,
     leastFrequentSuspendableTabs,
@@ -642,7 +651,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
             }}
             onKeyDown={handleKeyDown}
             className="h-16 rounded-none border-0 bg-transparent px-5 py-1 pr-24 text-xl font-medium shadow-none ring-offset-transparent placeholder:text-lg placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
-            placeholder="Search tabs or type /settings..."
+            placeholder="Search tabs or type / for commands..."
             spellCheck={false}
           />
           <div className="absolute right-5 top-1/2 flex -translate-y-1/2 items-center gap-1 text-sm font-medium text-muted-foreground">
@@ -738,7 +747,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
                 void handleActivate(tab);
               }}
               className={cn(
-                "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
+                "group relative grid w-full grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
                 visibleTabStartIndex + index === activeIndex
                   ? "bg-accent text-accent-foreground"
                   : "hover:bg-accent/60",
@@ -773,6 +782,14 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
               </span>
 
               <span className="flex items-center gap-1">
+                {isBaseState ? (
+                  <span
+                    className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                    aria-label={`Opened ${tabFrequencies[tab.url]?.count ?? 0} times`}
+                  >
+                    opened {tabFrequencies[tab.url]?.count ?? 0} times
+                  </span>
+                ) : null}
                 {isDuplicatesQuery ? (
                   <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                     {duplicateUrlCounts[tab.url]}
@@ -786,7 +803,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
                 ) : null}
                 <span
                   className={cn(
-                    "flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100",
+                    "pointer-events-none absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 rounded-md bg-accent px-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100",
                     isDuplicatesQuery && "hidden",
                   )}
                 >
@@ -846,7 +863,8 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
 
                   <span className="flex items-center gap-2">
                     <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                      {duplicateTabCount}
+                      {duplicateTabCount} tab
+                      {duplicateTabCount === 1 ? "" : "s"}
                     </span>
                     <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
                   </span>
@@ -886,7 +904,8 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
 
                   <span className="flex items-center gap-2">
                     <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                      {leastFrequentSuspendableTabs.length}
+                      {leastFrequentSuspendableTabs.length} tab
+                      {leastFrequentSuspendableTabs.length === 1 ? "" : "s"}
                     </span>
                     <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
                   </span>
