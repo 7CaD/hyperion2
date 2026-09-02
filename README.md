@@ -1,5 +1,9 @@
 # React + TypeScript + Vite
 
+## Performance Priority
+
+The initial load speed of the main application popup is a top priority. All added features should preserve a fast first contentful paint and avoid introducing work, dependencies, or rendering paths that delay the popup's first visible content.
+
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
 Currently, two official plugins are available:
