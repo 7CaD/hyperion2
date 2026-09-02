@@ -1,6 +1,7 @@
 export type ManagedTab = {
   active: boolean;
   audible: boolean;
+  discarded: boolean;
   favIconUrl?: string;
   group?: ManagedTabGroup;
   groupId?: number;
@@ -39,6 +40,7 @@ const toManagedTab = (tab: chrome.tabs.Tab): ManagedTab | null => {
   return {
     active: Boolean(tab.active),
     audible: Boolean(tab.audible),
+    discarded: Boolean(tab.discarded),
     favIconUrl: tab.favIconUrl,
     groupId:
       typeof tab.groupId === "number" && tab.groupId !== -1
@@ -124,6 +126,14 @@ export async function closeTab(tabId: number) {
   }
 
   await chrome.tabs.remove(tabId);
+}
+
+export async function suspendTabs(tabIds: number[]) {
+  if (!isExtensionRuntime() || !chrome.tabs?.discard) {
+    return;
+  }
+
+  await Promise.all(tabIds.map((tabId) => chrome.tabs.discard(tabId)));
 }
 
 export async function getPreferDetached() {

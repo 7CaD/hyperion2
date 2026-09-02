@@ -6,6 +6,7 @@ import {
   Loader2,
   Pin,
   Settings,
+  Snowflake,
   Volume2,
   X,
 } from "lucide-react";
@@ -23,6 +24,7 @@ import {
   getTabFrequencies,
   openDetachedWindow,
   setPreferDetached,
+  suspendTabs,
   type TabFrequencies,
   type ManagedTab,
   type ManagedTabGroup,
@@ -31,6 +33,7 @@ import { cn } from "./lib/utils";
 
 const SETTINGS_COMMAND = "/settings";
 const DUPLICATES_COMMAND = "/duplicates";
+const LEAST_FREQUENTED_COMMAND = "/least-frequented";
 const MOST_FREQUENT_TAB_LIMIT = 3;
 const TAB_GROUP_BADGE_CLASSES: Record<ManagedTabGroup["color"], string> = {
   blue: "bg-blue-500 text-blue-700",
@@ -138,6 +141,28 @@ const getMostFrequentTabs = (
   [...tabs]
     .sort(compareTabsByFrequency(tabFrequencies))
     .slice(0, MOST_FREQUENT_TAB_LIMIT);
+
+const compareTabsByLeastFrequency =
+  (tabFrequencies: TabFrequencies) => (a: ManagedTab, b: ManagedTab) => {
+    const aFrequency = tabFrequencies[a.url];
+    const bFrequency = tabFrequencies[b.url];
+
+    return (
+      (aFrequency?.count ?? 0) - (bFrequency?.count ?? 0) ||
+      (aFrequency?.lastActivatedAt ?? 0) - (bFrequency?.lastActivatedAt ?? 0) ||
+      compareTabsByPosition(a, b)
+    );
+  };
+
+const getLeastFrequentSuspendableTabs = (
+  tabs: ManagedTab[],
+  tabFrequencies: TabFrequencies,
+) =>
+  [...tabs]
+    .filter(
+      (tab) => !tab.active && !tab.pinned && !tab.audible && !tab.discarded,
+    )
+    .sort(compareTabsByLeastFrequency(tabFrequencies));
 
 const getDuplicateTabData = (tabs: ManagedTab[]): DuplicateTabData => {
   const groupsByUrl = tabs.reduce<Record<string, ManagedTab[]>>(
@@ -285,6 +310,8 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   const [tabs, setTabs] = useState<ManagedTab[]>([]);
   const [tabFrequencies, setTabFrequencies] = useState<TabFrequencies>({});
   const [mostFrequentTabs, setMostFrequentTabs] = useState<ManagedTab[]>([]);
+  const [leastFrequentSuspendableTabs, setLeastFrequentSuspendableTabs] =
+    useState<ManagedTab[]>([]);
   const [duplicateTabData, setDuplicateTabData] = useState<DuplicateTabData>(
     emptyDuplicateTabData,
   );
@@ -330,11 +357,16 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     const cancel = scheduleAsyncWork(() => {
       const nextMostFrequentTabs =
         tabs.length === 0 ? [] : getMostFrequentTabs(tabs, tabFrequencies);
+      const nextLeastFrequentSuspendableTabs =
+        tabs.length === 0
+          ? []
+          : getLeastFrequentSuspendableTabs(tabs, tabFrequencies);
       const nextDuplicateTabData =
         tabs.length === 0 ? emptyDuplicateTabData : getDuplicateTabData(tabs);
 
       if (isCurrent) {
         setMostFrequentTabs(nextMostFrequentTabs);
+        setLeastFrequentSuspendableTabs(nextLeastFrequentSuspendableTabs);
         setDuplicateTabData(nextDuplicateTabData);
         setPreparedTabs(tabs);
         setPreparedTabFrequencies(tabFrequencies);
@@ -382,9 +414,11 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   const trimmedQuery = query.trim();
   const isBaseState = trimmedQuery.length === 0;
   const isDuplicatesQuery = trimmedQuery === DUPLICATES_COMMAND;
+  const isLeastFrequentedQuery = trimmedQuery === LEAST_FREQUENTED_COMMAND;
   const showSettingsCommand =
     trimmedQuery.length > 0 &&
     !isDuplicatesQuery &&
+    !isLeastFrequentedQuery &&
     (SETTINGS_COMMAND.startsWith(trimmedQuery) ||
       trimmedQuery.startsWith(SETTINGS_COMMAND));
   const duplicateUrlCounts = duplicateTabData.urlCounts;
@@ -397,8 +431,17 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   const isPreparingSearch = tabs.length > 0 && fuseState.tabs !== tabs;
   const showDuplicatesSummary =
     isBaseState && duplicateTabData.tabGroups.length > 0;
+  const showLeastFrequentedSummary =
+    isBaseState && leastFrequentSuspendableTabs.length > 0;
+  const showSuspendLeastFrequentAction =
+    isLeastFrequentedQuery && leastFrequentSuspendableTabs.length > 0;
+  const showTabCleanupSection =
+    showDuplicatesSummary || showLeastFrequentedSummary;
   const isSearchQuery =
-    !isBaseState && !isDuplicatesQuery && !showSettingsCommand;
+    !isBaseState &&
+    !isDuplicatesQuery &&
+    !isLeastFrequentedQuery &&
+    !showSettingsCommand;
   const isSearchPending = isSearchQuery && tabs.length > 0 && !fuse;
   const isDuplicatesPending =
     isDuplicatesQuery && tabs.length > 0 && isPreparingTabs;
@@ -410,6 +453,10 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
 
     if (isDuplicatesQuery) {
       return duplicateTabs;
+    }
+
+    if (isLeastFrequentedQuery) {
+      return leastFrequentSuspendableTabs;
     }
 
     if (showSettingsCommand) {
@@ -435,6 +482,8 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     fuse,
     isBaseState,
     isDuplicatesQuery,
+    isLeastFrequentedQuery,
+    leastFrequentSuspendableTabs,
     mostFrequentTabs,
     showSettingsCommand,
     tabFrequencies,
@@ -443,19 +492,38 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   const showBusyIndicator =
     isLoading || isPreparingTabs || isPreparingSearch || isSearchPending;
 
+  const leadingActionCount = Number(showSuspendLeastFrequentAction);
+  const visibleTabStartIndex = leadingActionCount;
   const itemCount =
+    leadingActionCount +
     visibleTabs.length +
     Number(showDuplicatesSummary) +
+    Number(showLeastFrequentedSummary) +
     Number(showSettingsCommand);
   const activeIndex =
     itemCount === 0 ? 0 : Math.min(selectedIndex, itemCount - 1);
+  const selectedVisibleTabIndex = activeIndex - visibleTabStartIndex;
   const isDuplicatesSummarySelected =
-    showDuplicatesSummary && activeIndex === visibleTabs.length;
+    showDuplicatesSummary &&
+    activeIndex === visibleTabStartIndex + visibleTabs.length;
+  const isSuspendLeastFrequentSelected =
+    showSuspendLeastFrequentAction && activeIndex === 0;
+  const isLeastFrequentedSummarySelected =
+    showLeastFrequentedSummary &&
+    activeIndex ===
+      visibleTabStartIndex + visibleTabs.length + Number(showDuplicatesSummary);
   const isSettingsCommandSelected =
     showSettingsCommand &&
-    activeIndex === visibleTabs.length + Number(showDuplicatesSummary);
+    activeIndex ===
+      visibleTabStartIndex +
+        visibleTabs.length +
+        Number(showDuplicatesSummary) +
+        Number(showLeastFrequentedSummary);
 
-  const selectedTab = visibleTabs[activeIndex];
+  const selectedTab =
+    selectedVisibleTabIndex >= 0
+      ? visibleTabs[selectedVisibleTabIndex]
+      : undefined;
   const selectedDuplicateGroup =
     isDuplicatesQuery && selectedTab
       ? duplicateGroupsByUrl[selectedTab.url]
@@ -469,7 +537,9 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   }, [
     activeIndex,
     isDuplicatesSummarySelected,
+    isLeastFrequentedSummarySelected,
     isSettingsCommandSelected,
+    isSuspendLeastFrequentSelected,
     selectedTab,
   ]);
 
@@ -492,6 +562,18 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
 
     setTabs((currentTabs) =>
       currentTabs.filter((tab) => !tabIdsToClose.includes(tab.id)),
+    );
+  };
+
+  const handleSuspendLeastFrequent = async () => {
+    const tabIdsToSuspend = leastFrequentSuspendableTabs.map((tab) => tab.id);
+
+    await suspendTabs(tabIdsToSuspend);
+
+    setTabs((currentTabs) =>
+      currentTabs.map((tab) =>
+        tabIdsToSuspend.includes(tab.id) ? { ...tab, discarded: true } : tab,
+      ),
     );
   };
 
@@ -519,6 +601,19 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
       event.preventDefault();
       setQuery(DUPLICATES_COMMAND);
       setSelectedIndex(0);
+      return;
+    }
+
+    if (event.key === "Enter" && isLeastFrequentedSummarySelected) {
+      event.preventDefault();
+      setQuery(LEAST_FREQUENTED_COMMAND);
+      setSelectedIndex(0);
+      return;
+    }
+
+    if (event.key === "Enter" && isSuspendLeastFrequentSelected) {
+      event.preventDefault();
+      void handleSuspendLeastFrequent();
       return;
     }
 
@@ -586,10 +681,51 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
         ) : null}
 
         <div className="space-y-1">
+          {showSuspendLeastFrequentAction ? (
+            <button
+              ref={isSuspendLeastFrequentSelected ? selectedItemRef : undefined}
+              type="button"
+              onClick={() => void handleSuspendLeastFrequent()}
+              className={cn(
+                "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
+                isSuspendLeastFrequentSelected
+                  ? "bg-accent text-accent-foreground"
+                  : "hover:bg-accent/60",
+              )}
+            >
+              <span className="min-w-0">
+                <span className="flex items-center gap-2">
+                  <Snowflake className="h-4 w-4 flex-none text-muted-foreground" />
+                  <span className="truncate text-sm font-medium">
+                    Suspend least frequented tabs
+                  </span>
+                </span>
+                <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
+                  Free memory from all tabs in this list
+                </span>
+              </span>
+
+              <span className="flex items-center gap-2">
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  {leastFrequentSuspendableTabs.length}
+                </span>
+                <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+              </span>
+            </button>
+          ) : null}
+
+          {!isLoading && isLeastFrequentedQuery && visibleTabs.length > 0 ? (
+            <TabSectionHeader title="Least frequented tabs" />
+          ) : null}
+
           {visibleTabs.map((tab, index) => (
             <button
               key={tab.id}
-              ref={index === activeIndex ? selectedItemRef : undefined}
+              ref={
+                visibleTabStartIndex + index === activeIndex
+                  ? selectedItemRef
+                  : undefined
+              }
               type="button"
               onClick={() => {
                 const duplicateGroup = duplicateGroupsByUrl[tab.url];
@@ -603,7 +739,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
               }}
               className={cn(
                 "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
-                index === activeIndex
+                visibleTabStartIndex + index === activeIndex
                   ? "bg-accent text-accent-foreground"
                   : "hover:bg-accent/60",
               )}
@@ -642,7 +778,8 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
                     {duplicateUrlCounts[tab.url]}
                   </span>
                 ) : null}
-                {isDuplicatesQuery && index === activeIndex ? (
+                {isDuplicatesQuery &&
+                visibleTabStartIndex + index === activeIndex ? (
                   <kbd className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                     Merge
                   </kbd>
@@ -672,45 +809,89 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
             </button>
           ))}
 
-          {showDuplicatesSummary ? (
+          {showTabCleanupSection ? (
             <>
               {visibleTabs.length > 0 ? (
                 <TabSectionHeader divided title="Tab cleanup" />
               ) : null}
 
-              <button
-                ref={isDuplicatesSummarySelected ? selectedItemRef : undefined}
-                type="button"
-                onClick={() => {
-                  setQuery(DUPLICATES_COMMAND);
-                  setSelectedIndex(0);
-                }}
-                className={cn(
-                  "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
-                  isDuplicatesSummarySelected
-                    ? "bg-accent text-accent-foreground"
-                    : "hover:bg-accent/60",
-                )}
-              >
-                <span className="min-w-0">
-                  <span className="flex items-center gap-2">
-                    <Copy className="h-4 w-4 flex-none text-muted-foreground" />
-                    <span className="truncate text-sm font-medium">
-                      Duplicated tabs
+              {showDuplicatesSummary ? (
+                <button
+                  ref={
+                    isDuplicatesSummarySelected ? selectedItemRef : undefined
+                  }
+                  type="button"
+                  onClick={() => {
+                    setQuery(DUPLICATES_COMMAND);
+                    setSelectedIndex(0);
+                  }}
+                  className={cn(
+                    "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
+                    isDuplicatesSummarySelected
+                      ? "bg-accent text-accent-foreground"
+                      : "hover:bg-accent/60",
+                  )}
+                >
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-2">
+                      <Copy className="h-4 w-4 flex-none text-muted-foreground" />
+                      <span className="truncate text-sm font-medium">
+                        Duplicated tabs
+                      </span>
+                    </span>
+                    <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
+                      Show tabs with the exact same URL
                     </span>
                   </span>
-                  <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
-                    Show tabs with the exact same URL
-                  </span>
-                </span>
 
-                <span className="flex items-center gap-2">
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                    {duplicateTabCount}
+                  <span className="flex items-center gap-2">
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                      {duplicateTabCount}
+                    </span>
+                    <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
                   </span>
-                  <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
-                </span>
-              </button>
+                </button>
+              ) : null}
+
+              {showLeastFrequentedSummary ? (
+                <button
+                  ref={
+                    isLeastFrequentedSummarySelected
+                      ? selectedItemRef
+                      : undefined
+                  }
+                  type="button"
+                  onClick={() => {
+                    setQuery(LEAST_FREQUENTED_COMMAND);
+                    setSelectedIndex(0);
+                  }}
+                  className={cn(
+                    "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
+                    isLeastFrequentedSummarySelected
+                      ? "bg-accent text-accent-foreground"
+                      : "hover:bg-accent/60",
+                  )}
+                >
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-2">
+                      <Snowflake className="h-4 w-4 flex-none text-muted-foreground" />
+                      <span className="truncate text-sm font-medium">
+                        Suspend least frequented tabs
+                      </span>
+                    </span>
+                    <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
+                      Review tabs you rarely open
+                    </span>
+                  </span>
+
+                  <span className="flex items-center gap-2">
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                      {leastFrequentSuspendableTabs.length}
+                    </span>
+                    <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+                  </span>
+                </button>
+              ) : null}
             </>
           ) : null}
 
