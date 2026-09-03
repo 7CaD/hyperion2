@@ -5,12 +5,14 @@ import { cn } from "../../lib/utils";
 type ScrollAreaProps = React.ComponentProps<typeof ScrollAreaPrimitive.Root> & {
   viewportClassName?: string;
   contentClassName?: string;
+  viewportRef?: React.Ref<HTMLDivElement>;
 };
 
 export function ScrollArea({
   className,
   viewportClassName,
   contentClassName,
+  viewportRef,
   children,
   ...props
 }: ScrollAreaProps) {
@@ -20,7 +22,11 @@ export function ScrollArea({
       {...props}
     >
       <ScrollAreaPrimitive.Viewport
-        className={cn("h-full w-full rounded-[inherit] outline-none", viewportClassName)}
+        ref={viewportRef}
+        className={cn(
+          "h-full w-full rounded-[inherit] outline-none",
+          viewportClassName,
+        )}
       >
         <ScrollAreaPrimitive.Content className={contentClassName}>
           {children}
@@ -42,8 +48,10 @@ export function ScrollBar({
       orientation={orientation}
       className={cn(
         "flex touch-none select-none bg-transparent p-0.5 transition-colors",
-        orientation === "vertical" && "h-full w-2.5 border-l border-l-transparent",
-        orientation === "horizontal" && "h-2.5 flex-col border-t border-t-transparent",
+        orientation === "vertical" &&
+          "h-full w-2.5 border-l border-l-transparent",
+        orientation === "horizontal" &&
+          "h-2.5 flex-col border-t border-t-transparent",
         className,
       )}
       {...props}

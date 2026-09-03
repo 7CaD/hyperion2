@@ -1,4 +1,5 @@
 import Fuse from "fuse.js";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -73,6 +74,41 @@ const emptyDuplicateTabData: DuplicateTabData = {
   tabs: [],
   urlCounts: {},
 };
+
+type TabListRow =
+  | {
+      key: string;
+      title: string;
+      type: "section-header";
+      divided?: boolean;
+    }
+  | {
+      key: string;
+      selectableIndex: number;
+      type: "suspend-least-frequent";
+    }
+  | {
+      key: string;
+      selectableIndex: number;
+      tab: ManagedTab;
+      type: "tab";
+      visibleTabIndex: number;
+    }
+  | {
+      key: string;
+      selectableIndex: number;
+      type: "duplicates-summary";
+    }
+  | {
+      key: string;
+      selectableIndex: number;
+      type: "least-frequented-summary";
+    }
+  | {
+      key: string;
+      selectableIndex: number;
+      type: "settings-command";
+    };
 
 const scheduleAsyncWork = (work: () => void) => {
   if (window.requestIdleCallback && window.cancelIdleCallback) {
@@ -322,7 +358,7 @@ function App() {
 
 function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const selectedItemRef = useRef<HTMLButtonElement>(null);
+  const scrollViewportRef = useRef<HTMLDivElement>(null);
   const [tabs, setTabs] = useState<ManagedTab[]>([]);
   const [tabFrequencies, setTabFrequencies] = useState<TabFrequencies>({});
   const [mostFrequentTabs, setMostFrequentTabs] = useState<ManagedTab[]>([]);
@@ -557,19 +593,116 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
       ? duplicateGroupsByUrl[selectedTab.url]
       : undefined;
 
-  useLayoutEffect(() => {
-    selectedItemRef.current?.scrollIntoView({
-      block: "nearest",
-      inline: "nearest",
+  const rows = useMemo<TabListRow[]>(() => {
+    const nextRows: TabListRow[] = [];
+
+    if (!isLoading && isBaseState && visibleTabs.length > 0) {
+      nextRows.push({
+        key: "most-frequented-tabs-header",
+        title: "Most frequented tabs",
+        type: "section-header",
+      });
+    }
+
+    if (showSuspendLeastFrequentAction) {
+      nextRows.push({
+        key: "suspend-least-frequent",
+        selectableIndex: 0,
+        type: "suspend-least-frequent",
+      });
+    }
+
+    if (!isLoading && isLeastFrequentedQuery && visibleTabs.length > 0) {
+      nextRows.push({
+        key: "least-frequented-tabs-header",
+        title: "Least frequented tabs",
+        type: "section-header",
+      });
+    }
+
+    visibleTabs.forEach((tab, index) => {
+      nextRows.push({
+        key: `tab-${tab.id}`,
+        selectableIndex: visibleTabStartIndex + index,
+        tab,
+        type: "tab",
+        visibleTabIndex: index,
+      });
     });
+
+    if (showTabCleanupSection) {
+      if (visibleTabs.length > 0) {
+        nextRows.push({
+          divided: true,
+          key: "tab-cleanup-header",
+          title: "Tab cleanup",
+          type: "section-header",
+        });
+      }
+
+      if (showDuplicatesSummary) {
+        nextRows.push({
+          key: "duplicates-summary",
+          selectableIndex: visibleTabStartIndex + visibleTabs.length,
+          type: "duplicates-summary",
+        });
+      }
+
+      if (showLeastFrequentedSummary) {
+        nextRows.push({
+          key: "least-frequented-summary",
+          selectableIndex:
+            visibleTabStartIndex +
+            visibleTabs.length +
+            Number(showDuplicatesSummary),
+          type: "least-frequented-summary",
+        });
+      }
+    }
+
+    if (showSettingsCommand) {
+      nextRows.push({
+        key: "settings-command",
+        selectableIndex:
+          visibleTabStartIndex +
+          visibleTabs.length +
+          Number(showDuplicatesSummary) +
+          Number(showLeastFrequentedSummary),
+        type: "settings-command",
+      });
+    }
+
+    return nextRows;
   }, [
-    activeIndex,
-    isDuplicatesSummarySelected,
-    isLeastFrequentedSummarySelected,
-    isSettingsCommandSelected,
-    isSuspendLeastFrequentSelected,
-    selectedTab,
+    isBaseState,
+    isLeastFrequentedQuery,
+    isLoading,
+    showDuplicatesSummary,
+    showLeastFrequentedSummary,
+    showSettingsCommand,
+    showSuspendLeastFrequentAction,
+    showTabCleanupSection,
+    visibleTabStartIndex,
+    visibleTabs,
   ]);
+
+  const selectedRowIndex = rows.findIndex(
+    (row) => "selectableIndex" in row && row.selectableIndex === activeIndex,
+  );
+  // oxlint-disable-next-line react/incompatible-library -- TanStack Virtual is intentionally used for list windowing.
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    estimateSize: (index) => (rows[index]?.type === "section-header" ? 28 : 57),
+    getScrollElement: () => scrollViewportRef.current,
+    getItemKey: (index) => rows[index]?.key ?? index,
+    overscan: 6,
+  });
+
+  useLayoutEffect(() => {
+    if (selectedRowIndex >= 0) {
+      rowVirtualizer.scrollToIndex(selectedRowIndex, { align: "auto" });
+    }
+  }, [rowVirtualizer, selectedRowIndex]);
 
   const handleActivate = async (tab: ManagedTab) => {
     await activateTab(tab);
@@ -657,6 +790,251 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     }
   };
 
+  const renderRow = (row: TabListRow) => {
+    if (row.type === "section-header") {
+      return <TabSectionHeader divided={row.divided} title={row.title} />;
+    }
+
+    if (row.type === "suspend-least-frequent") {
+      const isSelected = row.selectableIndex === activeIndex;
+
+      return (
+        <button
+          type="button"
+          onClick={() => void handleSuspendLeastFrequent()}
+          className={cn(
+            "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
+            isSelected
+              ? "bg-accent text-accent-foreground"
+              : "hover:bg-accent/60",
+          )}
+        >
+          <span className="min-w-0">
+            <span className="flex items-center gap-2">
+              <Snowflake className="h-4 w-4 flex-none text-muted-foreground" />
+              <span className="truncate text-sm font-medium">
+                Suspend least frequented tabs
+              </span>
+            </span>
+            <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
+              Free memory from all tabs in this list
+            </span>
+          </span>
+
+          <span className="flex items-center gap-2">
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              {leastFrequentSuspendableTabs.length}
+            </span>
+            <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+          </span>
+        </button>
+      );
+    }
+
+    if (row.type === "tab") {
+      const { tab } = row;
+      const isSelected = row.selectableIndex === activeIndex;
+
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            const duplicateGroup = duplicateGroupsByUrl[tab.url];
+
+            if (isDuplicatesQuery && duplicateGroup) {
+              void handleMergeDuplicates(duplicateGroup);
+              return;
+            }
+
+            void handleActivate(tab);
+          }}
+          className={cn(
+            "group relative grid w-full grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
+            isSelected
+              ? "bg-accent text-accent-foreground"
+              : "hover:bg-accent/60",
+          )}
+        >
+          <span className="min-w-0">
+            <span className="flex items-center gap-2">
+              {tab.favIconUrl ? (
+                <img
+                  src={tab.favIconUrl}
+                  alt=""
+                  className="mt-px h-4 w-4 flex-none rounded-sm"
+                  loading="lazy"
+                />
+              ) : (
+                <span className="h-4 w-4 flex-none rounded-sm bg-muted" />
+              )}
+              {tab.group ? <TabGroupBadge group={tab.group} /> : null}
+              <span className="truncate text-sm font-medium">{tab.title}</span>
+              {tab.pinned ? (
+                <Pin className="h-3 w-3 flex-none text-muted-foreground" />
+              ) : null}
+              {tab.audible ? (
+                <Volume2 className="h-3 w-3 flex-none text-muted-foreground" />
+              ) : null}
+            </span>
+            <span className="mt-1 block truncate pl-6 text-[11px] text-muted-foreground">
+              {tab.url}
+            </span>
+          </span>
+
+          <span className="flex items-center gap-1">
+            {isBaseState ? (
+              <span
+                className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+                aria-label={`Opened ${tabFrequencies[tab.url]?.count ?? 0} times`}
+              >
+                opened {tabFrequencies[tab.url]?.count ?? 0} times
+              </span>
+            ) : null}
+            {isDuplicatesQuery ? (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                {duplicateUrlCounts[tab.url]}
+              </span>
+            ) : null}
+            {isDuplicatesQuery && isSelected ? (
+              <kbd className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                Merge
+              </kbd>
+            ) : null}
+            <span
+              className={cn(
+                "pointer-events-none absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 rounded-md bg-accent px-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100",
+                isDuplicatesQuery && "hidden",
+              )}
+            >
+              <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                aria-label={`Close ${tab.title}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void handleClose(tab.id);
+                }}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </span>
+          </span>
+        </button>
+      );
+    }
+
+    if (row.type === "duplicates-summary") {
+      const isSelected = row.selectableIndex === activeIndex;
+
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            setQuery(DUPLICATES_COMMAND);
+            setSelectedIndex(0);
+          }}
+          className={cn(
+            "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
+            isSelected
+              ? "bg-accent text-accent-foreground"
+              : "hover:bg-accent/60",
+          )}
+        >
+          <span className="min-w-0">
+            <span className="flex items-center gap-2">
+              <Copy className="h-4 w-4 flex-none text-muted-foreground" />
+              <span className="truncate text-sm font-medium">
+                Duplicated tabs
+              </span>
+            </span>
+            <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
+              Show tabs with the exact same URL
+            </span>
+          </span>
+
+          <span className="flex items-center gap-2">
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              {duplicateTabCount} tab{duplicateTabCount === 1 ? "" : "s"}
+            </span>
+            <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+          </span>
+        </button>
+      );
+    }
+
+    if (row.type === "least-frequented-summary") {
+      const isSelected = row.selectableIndex === activeIndex;
+
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            setQuery(LEAST_FREQUENTED_COMMAND);
+            setSelectedIndex(0);
+          }}
+          className={cn(
+            "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
+            isSelected
+              ? "bg-accent text-accent-foreground"
+              : "hover:bg-accent/60",
+          )}
+        >
+          <span className="min-w-0">
+            <span className="flex items-center gap-2">
+              <Snowflake className="h-4 w-4 flex-none text-muted-foreground" />
+              <span className="truncate text-sm font-medium">
+                Suspend least frequented tabs
+              </span>
+            </span>
+            <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
+              Review tabs you rarely open
+            </span>
+          </span>
+
+          <span className="flex items-center gap-2">
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              {leastFrequentSuspendableTabs.length} tab
+              {leastFrequentSuspendableTabs.length === 1 ? "" : "s"}
+            </span>
+            <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+          </span>
+        </button>
+      );
+    }
+
+    const isSelected = row.selectableIndex === activeIndex;
+
+    return (
+      <button
+        type="button"
+        onClick={() => navigateTo(SETTINGS_COMMAND)}
+        className={cn(
+          "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
+          isSelected
+            ? "bg-accent text-accent-foreground"
+            : "hover:bg-accent/60",
+        )}
+      >
+        <span className="min-w-0">
+          <span className="flex items-center gap-2">
+            <Settings className="h-4 w-4 flex-none text-muted-foreground" />
+            <span className="truncate text-sm font-medium">Settings</span>
+          </span>
+          <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
+            Configure Hyperion2 preferences
+          </span>
+        </span>
+
+        <span className="flex items-center gap-1">
+          <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+        </span>
+      </button>
+    );
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <section className="flex-none border-b border-border/70">
@@ -669,7 +1047,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
               setSelectedIndex(0);
             }}
             onKeyDown={handleKeyDown}
-            className="h-16 rounded-none border-0 bg-transparent px-5 py-1 pr-24 text-base font-medium shadow-none ring-offset-transparent placeholder:text-base placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
+            className="h-14 rounded-none border-0 bg-transparent px-5 py-1 pr-24 text-base font-medium shadow-none ring-offset-transparent placeholder:text-base placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
             placeholder="Search tabs or type / for commands..."
             spellCheck={false}
           />
@@ -684,7 +1062,11 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
         </div>
       </section>
 
-      <ScrollArea className="min-h-0 flex-1" contentClassName="px-2 pb-2 pt-1">
+      <ScrollArea
+        className="min-h-0 flex-1"
+        contentClassName="px-2 pb-2 pt-1"
+        viewportRef={scrollViewportRef}
+      >
         {isLoading && tabs.length === 0 ? (
           <div className="mx-2 rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
             Loading tabs in the background...
@@ -706,271 +1088,45 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
           </div>
         ) : null}
 
-        {!isLoading && isBaseState && visibleTabs.length > 0 ? (
-          <TabSectionHeader title="Most frequented tabs" />
-        ) : null}
+        <div
+          className="relative"
+          style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+        >
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const row = rows[virtualRow.index];
 
-        <div className="space-y-1">
-          {showSuspendLeastFrequentAction ? (
-            <button
-              ref={isSuspendLeastFrequentSelected ? selectedItemRef : undefined}
-              type="button"
-              onClick={() => void handleSuspendLeastFrequent()}
-              className={cn(
-                "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
-                isSuspendLeastFrequentSelected
-                  ? "bg-accent text-accent-foreground"
-                  : "hover:bg-accent/60",
-              )}
-            >
-              <span className="min-w-0">
-                <span className="flex items-center gap-2">
-                  <Snowflake className="h-4 w-4 flex-none text-muted-foreground" />
-                  <span className="truncate text-sm font-medium">
-                    Suspend least frequented tabs
-                  </span>
-                </span>
-                <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
-                  Free memory from all tabs in this list
-                </span>
-              </span>
+            if (!row) {
+              return null;
+            }
 
-              <span className="flex items-center gap-2">
-                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                  {leastFrequentSuspendableTabs.length}
-                </span>
-                <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
-              </span>
-            </button>
-          ) : null}
-
-          {!isLoading && isLeastFrequentedQuery && visibleTabs.length > 0 ? (
-            <TabSectionHeader title="Least frequented tabs" />
-          ) : null}
-
-          {visibleTabs.map((tab, index) => (
-            <button
-              key={tab.id}
-              ref={
-                visibleTabStartIndex + index === activeIndex
-                  ? selectedItemRef
-                  : undefined
-              }
-              type="button"
-              onClick={() => {
-                const duplicateGroup = duplicateGroupsByUrl[tab.url];
-
-                if (isDuplicatesQuery && duplicateGroup) {
-                  void handleMergeDuplicates(duplicateGroup);
-                  return;
-                }
-
-                void handleActivate(tab);
-              }}
-              className={cn(
-                "group relative grid w-full grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
-                visibleTabStartIndex + index === activeIndex
-                  ? "bg-accent text-accent-foreground"
-                  : "hover:bg-accent/60",
-              )}
-            >
-              <span className="min-w-0">
-                <span className="flex items-center gap-2">
-                  {tab.favIconUrl ? (
-                    <img
-                      src={tab.favIconUrl}
-                      alt=""
-                      className="h-4 w-4 flex-none rounded-sm mt-px"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <span className="h-4 w-4 flex-none rounded-sm bg-muted" />
-                  )}
-                  {tab.group ? <TabGroupBadge group={tab.group} /> : null}
-                  <span className="truncate text-sm font-medium">
-                    {tab.title}
-                  </span>
-                  {tab.pinned ? (
-                    <Pin className="h-3 w-3 flex-none text-muted-foreground" />
-                  ) : null}
-                  {tab.audible ? (
-                    <Volume2 className="h-3 w-3 flex-none text-muted-foreground" />
-                  ) : null}
-                </span>
-                <span className="mt-1 block truncate pl-6 text-[11px] text-muted-foreground">
-                  {tab.url}
-                </span>
-              </span>
-
-              <span className="flex items-center gap-1">
-                {isBaseState ? (
-                  <span
-                    className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
-                    aria-label={`Opened ${tabFrequencies[tab.url]?.count ?? 0} times`}
-                  >
-                    opened {tabFrequencies[tab.url]?.count ?? 0} times
-                  </span>
-                ) : null}
-                {isDuplicatesQuery ? (
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                    {duplicateUrlCounts[tab.url]}
-                  </span>
-                ) : null}
-                {isDuplicatesQuery &&
-                visibleTabStartIndex + index === activeIndex ? (
-                  <kbd className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    Merge
-                  </kbd>
-                ) : null}
-                <span
-                  className={cn(
-                    "pointer-events-none absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 rounded-md bg-accent px-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100",
-                    isDuplicatesQuery && "hidden",
-                  )}
-                >
-                  <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    aria-label={`Close ${tab.title}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void handleClose(tab.id);
-                    }}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
-                </span>
-              </span>
-            </button>
-          ))}
-
-          {showTabCleanupSection ? (
-            <>
-              {visibleTabs.length > 0 ? (
-                <TabSectionHeader divided title="Tab cleanup" />
-              ) : null}
-
-              {showDuplicatesSummary ? (
-                <button
-                  ref={
-                    isDuplicatesSummarySelected ? selectedItemRef : undefined
-                  }
-                  type="button"
-                  onClick={() => {
-                    setQuery(DUPLICATES_COMMAND);
-                    setSelectedIndex(0);
-                  }}
-                  className={cn(
-                    "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
-                    isDuplicatesSummarySelected
-                      ? "bg-accent text-accent-foreground"
-                      : "hover:bg-accent/60",
-                  )}
-                >
-                  <span className="min-w-0">
-                    <span className="flex items-center gap-2">
-                      <Copy className="h-4 w-4 flex-none text-muted-foreground" />
-                      <span className="truncate text-sm font-medium">
-                        Duplicated tabs
-                      </span>
-                    </span>
-                    <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
-                      Show tabs with the exact same URL
-                    </span>
-                  </span>
-
-                  <span className="flex items-center gap-2">
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                      {duplicateTabCount} tab
-                      {duplicateTabCount === 1 ? "" : "s"}
-                    </span>
-                    <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
-                  </span>
-                </button>
-              ) : null}
-
-              {showLeastFrequentedSummary ? (
-                <button
-                  ref={
-                    isLeastFrequentedSummarySelected
-                      ? selectedItemRef
-                      : undefined
-                  }
-                  type="button"
-                  onClick={() => {
-                    setQuery(LEAST_FREQUENTED_COMMAND);
-                    setSelectedIndex(0);
-                  }}
-                  className={cn(
-                    "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
-                    isLeastFrequentedSummarySelected
-                      ? "bg-accent text-accent-foreground"
-                      : "hover:bg-accent/60",
-                  )}
-                >
-                  <span className="min-w-0">
-                    <span className="flex items-center gap-2">
-                      <Snowflake className="h-4 w-4 flex-none text-muted-foreground" />
-                      <span className="truncate text-sm font-medium">
-                        Suspend least frequented tabs
-                      </span>
-                    </span>
-                    <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
-                      Review tabs you rarely open
-                    </span>
-                  </span>
-
-                  <span className="flex items-center gap-2">
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                      {leastFrequentSuspendableTabs.length} tab
-                      {leastFrequentSuspendableTabs.length === 1 ? "" : "s"}
-                    </span>
-                    <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
-                  </span>
-                </button>
-              ) : null}
-            </>
-          ) : null}
-
-          {showSettingsCommand ? (
-            <button
-              ref={isSettingsCommandSelected ? selectedItemRef : undefined}
-              type="button"
-              onClick={() => navigateTo(SETTINGS_COMMAND)}
-              className={cn(
-                "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
-                isSettingsCommandSelected
-                  ? "bg-accent text-accent-foreground"
-                  : "hover:bg-accent/60",
-              )}
-            >
-              <span className="min-w-0">
-                <span className="flex items-center gap-2">
-                  <Settings className="h-4 w-4 flex-none text-muted-foreground" />
-                  <span className="truncate text-sm font-medium">Settings</span>
-                </span>
-                <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
-                  Configure Hyperion2 preferences
-                </span>
-              </span>
-
-              <span className="flex items-center gap-1">
-                <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
-              </span>
-            </button>
-          ) : null}
+            return (
+              <div
+                key={virtualRow.key}
+                ref={rowVirtualizer.measureElement}
+                data-index={virtualRow.index}
+                className="absolute left-0 top-0 w-full pb-1"
+                style={{
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              >
+                {renderRow(row)}
+              </div>
+            );
+          })}
         </div>
       </ScrollArea>
 
-      <footer className="flex-none border-t border-border px-4 py-2 text-xs text-muted-foreground">
-        <KbdGroup>
-          <Kbd>↑</Kbd>
-          <Kbd>↓</Kbd>
-        </KbdGroup>{" "}
-        Navigate tabs <Kbd>Enter</Kbd> Execute Action
+      <footer className="flex items-center gap-2.5 flex-none border-t border-border px-4 py-2 text-xs text-muted-foreground">
+        <div>
+          <KbdGroup>
+            <Kbd>↑</Kbd>
+            <Kbd>↓</Kbd>
+          </KbdGroup>{" "}
+          Navigate tabs
+        </div>
+        <div>
+          <Kbd>Enter</Kbd> Execute Action
+        </div>
       </footer>
     </div>
   );
