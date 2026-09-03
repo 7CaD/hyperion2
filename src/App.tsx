@@ -669,7 +669,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
               setSelectedIndex(0);
             }}
             onKeyDown={handleKeyDown}
-            className="h-16 rounded-none border-0 bg-transparent px-5 py-1 pr-24 text-md font-medium shadow-none ring-offset-transparent placeholder:text-lg placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
+            className="h-16 rounded-none border-0 bg-transparent px-5 py-1 pr-24 text-base font-medium shadow-none ring-offset-transparent placeholder:text-base placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
             placeholder="Search tabs or type / for commands..."
             spellCheck={false}
           />
@@ -677,7 +677,9 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
             {showBusyIndicator ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : null}
-            <span>{tabs.length}</span>
+            <span>
+              {tabs.length} open tab{tabs.length > 1 ? "s" : ""}
+            </span>
           </div>
         </div>
       </section>
@@ -778,7 +780,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
                     <img
                       src={tab.favIconUrl}
                       alt=""
-                      className="h-4 w-4 flex-none rounded-sm"
+                      className="h-4 w-4 flex-none rounded-sm mt-px"
                       loading="lazy"
                     />
                   ) : (
@@ -795,7 +797,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
                     <Volume2 className="h-3 w-3 flex-none text-muted-foreground" />
                   ) : null}
                 </span>
-                <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
+                <span className="mt-1 block truncate pl-6 text-[11px] text-muted-foreground">
                   {tab.url}
                 </span>
               </span>
@@ -803,7 +805,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
               <span className="flex items-center gap-1">
                 {isBaseState ? (
                   <span
-                    className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                    className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
                     aria-label={`Opened ${tabFrequencies[tab.url]?.count ?? 0} times`}
                   >
                     opened {tabFrequencies[tab.url]?.count ?? 0} times
