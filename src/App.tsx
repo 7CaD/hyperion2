@@ -41,15 +41,15 @@ const LEAST_FREQUENTED_LAST_SELECTED_THRESHOLD_MS = 3 * 24 * 60 * 60 * 1000;
 const commandMatchesQuery = (command: string, query: string) =>
   query === "/" || command.startsWith(query);
 const TAB_GROUP_BADGE_CLASSES: Record<ManagedTabGroup["color"], string> = {
-  blue: "bg-blue-500 text-blue-700",
-  cyan: "bg-cyan-500 text-cyan-700",
-  green: "bg-green-300 text-green-700",
-  grey: "bg-gray-300 text-gray-800",
-  orange: "bg-orange-500 text-orange-700",
-  pink: "bg-pink-300/90 text-pink-950",
-  purple: "bg-purple-400 text-purple-950",
-  red: "bg-red-400 text-red-950",
-  yellow: "bg-yellow-200 text-yellow-900",
+  blue: "bg-blue-300 text-black",
+  cyan: "bg-cyan-500 text-black",
+  green: "bg-green-300 text-black",
+  grey: "bg-gray-300 text-black",
+  orange: "bg-orange-500 text-black",
+  pink: "bg-pink-300/90 text-black",
+  purple: "bg-purple-400 text-black",
+  red: "bg-red-400 text-black",
+  yellow: "bg-yellow-200 text-black",
 };
 
 type NavigateTo = (path: string) => void;
