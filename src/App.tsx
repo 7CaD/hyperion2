@@ -877,6 +877,12 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      window.close();
+      return;
+    }
+
     if (event.key === "Tab") {
       event.preventDefault();
 
