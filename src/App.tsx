@@ -439,7 +439,8 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [isMetaActionsRevealed, setIsMetaActionsRevealed] = useState(false);
+  const [isAdditionalActionsRevealed, setIsAdditionalActionsRevealed] =
+    useState(false);
   const [selectedAdditionalActionIndex, setSelectedAdditionalActionIndex] =
     useState(0);
 
@@ -666,7 +667,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
       : undefined;
 
   useEffect(() => {
-    setIsMetaActionsRevealed(false);
+    setIsAdditionalActionsRevealed(false);
     setSelectedAdditionalActionIndex(0);
   }, [selectedTabId]);
 
@@ -805,7 +806,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     const tabsBeforeClose = tabs;
     const leastFrequentTabsBeforeClose = leastFrequentSuspendableTabs;
 
-    setIsMetaActionsRevealed(false);
+    setIsAdditionalActionsRevealed(false);
     setTabs((currentTabs) => removeTabsById(currentTabs, tabIdsToCloseSet));
     setLeastFrequentSuspendableTabs((currentTabs) =>
       removeTabsById(currentTabs, tabIdsToCloseSet),
@@ -876,19 +877,21 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Meta") {
+    if (event.key === "Tab") {
+      event.preventDefault();
+
       if (event.repeat) {
         return;
       }
 
-      setIsMetaActionsRevealed((isRevealed) =>
+      setIsAdditionalActionsRevealed((isRevealed) =>
         selectedTab ? !isRevealed : false,
       );
       setSelectedAdditionalActionIndex(0);
       return;
     }
 
-    if (isMetaActionsRevealed && selectedTab) {
+    if (isAdditionalActionsRevealed && selectedTab) {
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         event.preventDefault();
         setSelectedAdditionalActionIndex(0);
@@ -907,7 +910,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
       if (itemCount === 0) {
         return;
       }
-      setIsMetaActionsRevealed(false);
+      setIsAdditionalActionsRevealed(false);
       setSelectedAdditionalActionIndex(0);
       setSelectedIndex((index) => (index + 1) % itemCount);
     }
@@ -917,7 +920,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
       if (itemCount === 0) {
         return;
       }
-      setIsMetaActionsRevealed(false);
+      setIsAdditionalActionsRevealed(false);
       setSelectedAdditionalActionIndex(0);
       setSelectedIndex((index) => (index - 1 + itemCount) % itemCount);
     }
@@ -1046,7 +1049,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     if (row.type === "tab") {
       const { tab } = row;
       const isSelected = row.selectableIndex === activeIndex;
-      const isActionRevealed = isSelected && isMetaActionsRevealed;
+      const isActionRevealed = isSelected && isAdditionalActionsRevealed;
       const isCloseActionSelected =
         isActionRevealed && selectedAdditionalActionIndex === 0;
 
@@ -1277,7 +1280,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
             onChange={(event) => {
               setQuery(event.target.value);
               setSelectedIndex(0);
-              setIsMetaActionsRevealed(false);
+              setIsAdditionalActionsRevealed(false);
               setSelectedAdditionalActionIndex(0);
             }}
             onKeyDown={handleKeyDown}
@@ -1362,7 +1365,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
           <Kbd>Enter</Kbd> Execute Action
         </div>
         <div>
-          <Kbd>⌘</Kbd> Reveal Tab Actions
+          <Kbd>Tab</Kbd> Reveal Tab Actions
         </div>
       </footer>
     </div>
