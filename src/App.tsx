@@ -90,6 +90,11 @@ type TabListRow =
   | {
       key: string;
       selectableIndex: number;
+      type: "close-least-frequent";
+    }
+  | {
+      key: string;
+      selectableIndex: number;
       tab: ManagedTab;
       type: "tab";
       visibleTabIndex: number;
@@ -521,6 +526,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     (isBaseState && leastFrequentSuspendableTabs.length > 0);
   const showSuspendLeastFrequentAction =
     isLeastFrequentedQuery && leastFrequentSuspendableTabs.length > 0;
+  const showCloseLeastFrequentAction = showSuspendLeastFrequentAction;
   const showTabCleanupSection =
     showDuplicatesSummary || showLeastFrequentedSummary;
   const isSearchQuery =
@@ -580,7 +586,9 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   const showBusyIndicator =
     isLoading || isPreparingTabs || isPreparingSearch || isSearchPending;
 
-  const leadingActionCount = Number(showSuspendLeastFrequentAction);
+  const leadingActionCount =
+    Number(showSuspendLeastFrequentAction) +
+    Number(showCloseLeastFrequentAction);
   const visibleTabStartIndex = leadingActionCount;
   const itemCount =
     leadingActionCount +
@@ -596,6 +604,9 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     activeIndex === visibleTabStartIndex + visibleTabs.length;
   const isSuspendLeastFrequentSelected =
     showSuspendLeastFrequentAction && activeIndex === 0;
+  const isCloseLeastFrequentSelected =
+    showCloseLeastFrequentAction &&
+    activeIndex === Number(showSuspendLeastFrequentAction);
   const isLeastFrequentedSummarySelected =
     showLeastFrequentedSummary &&
     activeIndex ===
@@ -639,6 +650,14 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
         key: "suspend-least-frequent",
         selectableIndex: 0,
         type: "suspend-least-frequent",
+      });
+    }
+
+    if (showCloseLeastFrequentAction) {
+      nextRows.push({
+        key: "close-least-frequent",
+        selectableIndex: Number(showSuspendLeastFrequentAction),
+        type: "close-least-frequent",
       });
     }
 
@@ -709,6 +728,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     isLoading,
     showDuplicatesSummary,
     showLeastFrequentedSummary,
+    showCloseLeastFrequentAction,
     showSettingsCommand,
     showSuspendLeastFrequentAction,
     showTabCleanupSection,
@@ -766,6 +786,19 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
       currentTabs.map((tab) =>
         tabIdsToSuspend.includes(tab.id) ? { ...tab, discarded: true } : tab,
       ),
+    );
+  };
+
+  const handleCloseLeastFrequent = async () => {
+    const tabIdsToClose = leastFrequentSuspendableTabs.map((tab) => tab.id);
+
+    await Promise.all(tabIdsToClose.map((tabId) => closeTab(tabId)));
+
+    setTabs((currentTabs) =>
+      currentTabs.filter((tab) => !tabIdsToClose.includes(tab.id)),
+    );
+    setLeastFrequentSuspendableTabs((currentTabs) =>
+      currentTabs.filter((tab) => !tabIdsToClose.includes(tab.id)),
     );
   };
 
@@ -842,6 +875,12 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
       return;
     }
 
+    if (event.key === "Enter" && isCloseLeastFrequentSelected) {
+      event.preventDefault();
+      void handleCloseLeastFrequent();
+      return;
+    }
+
     if (event.key === "Enter" && selectedDuplicateGroup) {
       event.preventDefault();
       void handleMergeDuplicates(selectedDuplicateGroup);
@@ -882,6 +921,42 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
             </span>
             <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
               Free memory from all tabs in this list
+            </span>
+          </span>
+
+          <span className="flex items-center gap-2">
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              {leastFrequentSuspendableTabs.length}
+            </span>
+            <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+          </span>
+        </button>
+      );
+    }
+
+    if (row.type === "close-least-frequent") {
+      const isSelected = row.selectableIndex === activeIndex;
+
+      return (
+        <button
+          type="button"
+          onClick={() => void handleCloseLeastFrequent()}
+          className={cn(
+            "group grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
+            isSelected
+              ? "bg-accent text-accent-foreground"
+              : "hover:bg-accent/60",
+          )}
+        >
+          <span className="min-w-0">
+            <span className="flex items-center gap-2">
+              <Trash className="h-4 w-4 flex-none text-muted-foreground" />
+              <span className="truncate text-sm font-medium">
+                Close least frequented tabs
+              </span>
+            </span>
+            <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
+              Close all tabs in this list
             </span>
           </span>
 
@@ -1070,7 +1145,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
             <span className="flex items-center gap-2">
               <Snowflake className="h-4 w-4 flex-none text-muted-foreground" />
               <span className="truncate text-sm font-medium">
-                Suspend least frequented tabs
+                Least frequented tabs
               </span>
             </span>
             <span className="mt-1 block truncate pl-6 text-xs text-muted-foreground">
