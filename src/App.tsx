@@ -803,14 +803,17 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
       }
       setIsMetaActionsRevealed(false);
       setSelectedAdditionalActionIndex(0);
-      setSelectedIndex((index) => Math.min(index + 1, itemCount - 1));
+      setSelectedIndex((index) => (index + 1) % itemCount);
     }
 
     if (event.key === "ArrowUp") {
       event.preventDefault();
+      if (itemCount === 0) {
+        return;
+      }
       setIsMetaActionsRevealed(false);
       setSelectedAdditionalActionIndex(0);
-      setSelectedIndex((index) => Math.max(index - 1, 0));
+      setSelectedIndex((index) => (index - 1 + itemCount) % itemCount);
     }
 
     if (event.key === "Enter" && isSettingsCommandSelected) {
