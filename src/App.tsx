@@ -1,5 +1,5 @@
-import Fuse from "fuse.js";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import Fuse from "fuse.js";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -8,8 +8,8 @@ import {
   Pin,
   Settings,
   Snowflake,
+  Trash,
   Volume2,
-  X,
 } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -27,9 +27,9 @@ import {
   openDetachedWindow,
   setPreferDetached,
   suspendTabs,
-  type TabFrequencies,
   type ManagedTab,
   type ManagedTabGroup,
+  type TabFrequencies,
 } from "./lib/chrome-tabs";
 import { cn } from "./lib/utils";
 
@@ -398,6 +398,9 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [isMetaActionsRevealed, setIsMetaActionsRevealed] = useState(false);
+  const [selectedAdditionalActionIndex, setSelectedAdditionalActionIndex] =
+    useState(0);
 
   useLayoutEffect(() => {
     inputRef.current?.focus();
@@ -609,10 +612,16 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     selectedVisibleTabIndex >= 0
       ? visibleTabs[selectedVisibleTabIndex]
       : undefined;
+  const selectedTabId = selectedTab?.id;
   const selectedDuplicateGroup =
     isDuplicatesQuery && selectedTab
       ? duplicateGroupsByUrl[selectedTab.url]
       : undefined;
+
+  useEffect(() => {
+    setIsMetaActionsRevealed(false);
+    setSelectedAdditionalActionIndex(0);
+  }, [selectedTabId]);
 
   const rows = useMemo<TabListRow[]>(() => {
     const nextRows: TabListRow[] = [];
@@ -732,6 +741,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
 
   const handleClose = async (tabId: number) => {
     await closeTab(tabId);
+    setIsMetaActionsRevealed(false);
     setTabs((currentTabs) => currentTabs.filter((tab) => tab.id !== tabId));
   };
 
@@ -760,16 +770,46 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Meta") {
+      if (event.repeat) {
+        return;
+      }
+
+      setIsMetaActionsRevealed((isRevealed) =>
+        selectedTab ? !isRevealed : false,
+      );
+      setSelectedAdditionalActionIndex(0);
+      return;
+    }
+
+    if (isMetaActionsRevealed && selectedTab) {
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        setSelectedAdditionalActionIndex(0);
+        return;
+      }
+
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void handleClose(selectedTab.id);
+        return;
+      }
+    }
+
     if (event.key === "ArrowDown") {
       event.preventDefault();
       if (itemCount === 0) {
         return;
       }
+      setIsMetaActionsRevealed(false);
+      setSelectedAdditionalActionIndex(0);
       setSelectedIndex((index) => Math.min(index + 1, itemCount - 1));
     }
 
     if (event.key === "ArrowUp") {
       event.preventDefault();
+      setIsMetaActionsRevealed(false);
+      setSelectedAdditionalActionIndex(0);
       setSelectedIndex((index) => Math.max(index - 1, 0));
     }
 
@@ -855,104 +895,115 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     if (row.type === "tab") {
       const { tab } = row;
       const isSelected = row.selectableIndex === activeIndex;
+      const isActionRevealed = isSelected && isMetaActionsRevealed;
+      const isCloseActionSelected =
+        isActionRevealed && selectedAdditionalActionIndex === 0;
 
       return (
-        <button
-          type="button"
-          onClick={() => {
-            const duplicateGroup = duplicateGroupsByUrl[tab.url];
-
-            if (isDuplicatesQuery && duplicateGroup) {
-              void handleMergeDuplicates(duplicateGroup);
-              return;
-            }
-
-            void handleActivate(tab);
-          }}
-          className={cn(
-            "group relative grid w-full grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-lg px-3 py-2 text-left transition-colors",
-            isSelected
-              ? "bg-accent text-accent-foreground"
-              : "hover:bg-accent/60",
-          )}
-        >
-          <span className="min-w-0">
-            <span className="flex items-center gap-2">
-              {tab.favIconUrl ? (
-                <img
-                  src={tab.favIconUrl}
-                  alt=""
-                  className="mt-px h-4 w-4 flex-none rounded-sm"
-                  loading="lazy"
-                />
-              ) : (
-                <span className="h-4 w-4 flex-none rounded-sm bg-muted" />
-              )}
-              {tab.group ? <TabGroupBadge group={tab.group} /> : null}
-              <span className="truncate text-sm font-medium">{tab.title}</span>
-              {tab.pinned ? (
-                <Pin className="h-3 w-3 flex-none text-muted-foreground" />
-              ) : null}
-              {tab.audible ? (
-                <Volume2 className="h-3 w-3 flex-none text-muted-foreground" />
-              ) : null}
-            </span>
-            <span className="mt-1 block truncate pl-6 text-[11px] text-muted-foreground">
-              {tab.url}
-            </span>
-          </span>
-
-          <span className="flex items-center gap-1">
-            {tab.incognito ? (
-              <span
-                className="inline-flex h-7 w-7 flex-none items-center justify-center rounded-full text-muted-foreground"
-                aria-label="Incognito tab"
-                title="Incognito tab"
-              >
-                <IncognitoIcon className="h-4 w-4" />
-              </span>
-            ) : null}
-            {isBaseState ? (
-              <span
-                className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
-                aria-label={`Opened ${tabFrequencies[tab.url]?.count ?? 0} times`}
-              >
-                opened {tabFrequencies[tab.url]?.count ?? 0} times
-              </span>
-            ) : null}
-            {isDuplicatesQuery ? (
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                {duplicateUrlCounts[tab.url]}
-              </span>
-            ) : null}
-            {isDuplicatesQuery && isSelected ? (
-              <kbd className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                Merge
-              </kbd>
-            ) : null}
-            <span
+        <div className="group relative overflow-hidden rounded-lg">
+          {isSelected ? (
+            <button
+              type="button"
               className={cn(
-                "pointer-events-none absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 rounded-md bg-accent px-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100",
-                isDuplicatesQuery && "hidden",
+                "absolute inset-y-0 right-0 z-0 flex w-16 items-center justify-center rounded-r-lg bg-red-600 text-white transition-colors hover:bg-red-700",
+                !isActionRevealed && "pointer-events-none",
               )}
+              aria-label={`Close ${tab.title}`}
+              tabIndex={-1}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleClose(tab.id);
+              }}
             >
-              <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                aria-label={`Close ${tab.title}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void handleClose(tab.id);
-                }}
+              <span
+                className={cn(
+                  "flex h-6 w-6 items-center justify-center rounded-full transition-colors",
+                  isCloseActionSelected && "bg-white/85 text-red-600",
+                )}
               >
-                <X className="h-3.5 w-3.5" />
-              </Button>
+                <Trash className="h-4 w-4" />
+              </span>
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              const duplicateGroup = duplicateGroupsByUrl[tab.url];
+
+              if (isDuplicatesQuery && duplicateGroup) {
+                void handleMergeDuplicates(duplicateGroup);
+                return;
+              }
+
+              void handleActivate(tab);
+            }}
+            className={cn(
+              "relative z-10 grid w-full grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-lg px-3 py-2 text-left ease-out",
+              isSelected
+                ? "bg-accent text-accent-foreground transition-transform duration-200"
+                : "transition-[background-color,color,transform] duration-200 hover:bg-accent/60",
+              isActionRevealed && "-translate-x-16 rounded-r-none",
+            )}
+          >
+            <span className="min-w-0">
+              <span className="flex items-center gap-2">
+                {tab.favIconUrl ? (
+                  <img
+                    src={tab.favIconUrl}
+                    alt=""
+                    className="mt-px h-4 w-4 flex-none rounded-sm"
+                    loading="lazy"
+                  />
+                ) : (
+                  <span className="h-4 w-4 flex-none rounded-sm bg-muted" />
+                )}
+                {tab.group ? <TabGroupBadge group={tab.group} /> : null}
+                <span className="truncate text-sm font-medium">
+                  {tab.title}
+                </span>
+                {tab.pinned ? (
+                  <Pin className="h-3 w-3 flex-none text-muted-foreground" />
+                ) : null}
+                {tab.audible ? (
+                  <Volume2 className="h-3 w-3 flex-none text-muted-foreground" />
+                ) : null}
+              </span>
+              <span className="mt-1 block truncate pl-6 text-[11px] text-muted-foreground">
+                {tab.url}
+              </span>
             </span>
-          </span>
-        </button>
+
+            <span className="flex items-center gap-1">
+              {tab.incognito ? (
+                <span
+                  className="inline-flex h-7 w-7 flex-none items-center justify-center rounded-full text-muted-foreground"
+                  aria-label="Incognito tab"
+                  title="Incognito tab"
+                >
+                  <IncognitoIcon className="h-4 w-4" />
+                </span>
+              ) : null}
+              {isBaseState ? (
+                <span
+                  className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+                  aria-label={`Opened ${tabFrequencies[tab.url]?.count ?? 0} times`}
+                >
+                  opened {tabFrequencies[tab.url]?.count ?? 0} times
+                </span>
+              ) : null}
+              {isDuplicatesQuery ? (
+                <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  {duplicateUrlCounts[tab.url]}
+                </span>
+              ) : null}
+              {isDuplicatesQuery && isSelected && !isActionRevealed ? (
+                <kbd className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  Merge
+                </kbd>
+              ) : null}
+            </span>
+          </button>
+        </div>
       );
     }
 
@@ -1075,6 +1126,8 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
             onChange={(event) => {
               setQuery(event.target.value);
               setSelectedIndex(0);
+              setIsMetaActionsRevealed(false);
+              setSelectedAdditionalActionIndex(0);
             }}
             onKeyDown={handleKeyDown}
             className="h-14 rounded-none border-0 bg-transparent px-5 py-1 pr-24 text-base font-medium shadow-none ring-offset-transparent placeholder:text-base placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
@@ -1156,6 +1209,9 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
         </div>
         <div>
           <Kbd>Enter</Kbd> Execute Action
+        </div>
+        <div>
+          <Kbd>⌘</Kbd> Reveal Tab Actions
         </div>
       </footer>
     </div>
