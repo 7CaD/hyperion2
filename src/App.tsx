@@ -75,6 +75,42 @@ const emptyDuplicateTabData: DuplicateTabData = {
   urlCounts: {},
 };
 
+const removeTabsById = (tabs: ManagedTab[], tabIds: Set<number>) =>
+  tabs.filter((tab) => !tabIds.has(tab.id));
+
+const restoreTabsBySnapshot = (
+  currentTabs: ManagedTab[],
+  snapshotTabs: ManagedTab[],
+  tabIdsToRestore: Set<number>,
+) => {
+  const currentTabsById = new Map(currentTabs.map((tab) => [tab.id, tab]));
+  const snapshotTabIds = new Set(snapshotTabs.map((tab) => tab.id));
+  const hasMissingTabToRestore = snapshotTabs.some(
+    (tab) => tabIdsToRestore.has(tab.id) && !currentTabsById.has(tab.id),
+  );
+
+  if (!hasMissingTabToRestore) {
+    return currentTabs;
+  }
+
+  const restoredSnapshotTabs: ManagedTab[] = [];
+
+  for (const tab of snapshotTabs) {
+    const currentTab = currentTabsById.get(tab.id);
+
+    if (currentTab) {
+      restoredSnapshotTabs.push(currentTab);
+    } else if (tabIdsToRestore.has(tab.id)) {
+      restoredSnapshotTabs.push(tab);
+    }
+  }
+
+  return [
+    ...restoredSnapshotTabs,
+    ...currentTabs.filter((tab) => !snapshotTabIds.has(tab.id)),
+  ];
+};
+
 type TabListRow =
   | {
       key: string;
@@ -759,10 +795,58 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     window.close();
   };
 
-  const handleClose = async (tabId: number) => {
-    await closeTab(tabId);
+  const closeTabsOptimistically = async (tabIdsToClose: number[]) => {
+    const tabIdsToCloseSet = new Set(tabIdsToClose);
+
+    if (tabIdsToCloseSet.size === 0) {
+      return;
+    }
+
+    const tabsBeforeClose = tabs;
+    const leastFrequentTabsBeforeClose = leastFrequentSuspendableTabs;
+
     setIsMetaActionsRevealed(false);
-    setTabs((currentTabs) => currentTabs.filter((tab) => tab.id !== tabId));
+    setTabs((currentTabs) => removeTabsById(currentTabs, tabIdsToCloseSet));
+    setLeastFrequentSuspendableTabs((currentTabs) =>
+      removeTabsById(currentTabs, tabIdsToCloseSet),
+    );
+
+    const uniqueTabIdsToClose = [...tabIdsToCloseSet];
+    const results = await Promise.allSettled(
+      uniqueTabIdsToClose.map((tabId) => closeTab(tabId)),
+    );
+    const failedTabIds = new Set<number>();
+
+    for (const [index, result] of results.entries()) {
+      if (result.status === "rejected") {
+        const tabId = uniqueTabIdsToClose[index];
+
+        if (tabId !== undefined) {
+          failedTabIds.add(tabId);
+        }
+
+        console.error("Failed to close tab", result.reason);
+      }
+    }
+
+    if (failedTabIds.size === 0) {
+      return;
+    }
+
+    setTabs((currentTabs) =>
+      restoreTabsBySnapshot(currentTabs, tabsBeforeClose, failedTabIds),
+    );
+    setLeastFrequentSuspendableTabs((currentTabs) =>
+      restoreTabsBySnapshot(
+        currentTabs,
+        leastFrequentTabsBeforeClose,
+        failedTabIds,
+      ),
+    );
+  };
+
+  const handleClose = async (tabId: number) => {
+    await closeTabsOptimistically([tabId]);
   };
 
   const handleMergeDuplicates = async (group: DuplicateTabGroup) => {
@@ -770,11 +854,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
       .filter((tab) => tab.id !== group.tab.id)
       .map((tab) => tab.id);
 
-    await Promise.all(tabIdsToClose.map((tabId) => closeTab(tabId)));
-
-    setTabs((currentTabs) =>
-      currentTabs.filter((tab) => !tabIdsToClose.includes(tab.id)),
-    );
+    await closeTabsOptimistically(tabIdsToClose);
   };
 
   const handleSuspendLeastFrequent = async () => {
@@ -792,14 +872,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
   const handleCloseLeastFrequent = async () => {
     const tabIdsToClose = leastFrequentSuspendableTabs.map((tab) => tab.id);
 
-    await Promise.all(tabIdsToClose.map((tabId) => closeTab(tabId)));
-
-    setTabs((currentTabs) =>
-      currentTabs.filter((tab) => !tabIdsToClose.includes(tab.id)),
-    );
-    setLeastFrequentSuspendableTabs((currentTabs) =>
-      currentTabs.filter((tab) => !tabIdsToClose.includes(tab.id)),
-    );
+    await closeTabsOptimistically(tabIdsToClose);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
