@@ -136,6 +136,27 @@ function TabGroupBadge({ group }: { group: ManagedTabGroup }) {
   );
 }
 
+function IncognitoIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 14 14"
+      aria-hidden="true"
+      className={className}
+    >
+      <g
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M2.807 5.78c-.026.481.365.856.847.862c1.069.014 2.505-.031 3.346-.031c.84 0 2.277.045 3.346.031c.482-.006.872-.38.846-.862c-.072-1.344-.554-2.874-.85-3.838a1.09 1.09 0 0 0-.93-.766C8.636 1.1 7.829 1.011 7 1.011c-.83 0-1.636.089-2.412.165c-.433.043-.802.35-.93.766c-.297.964-.778 2.494-.85 3.838M1 6.645h12m-7.018 4.149a1.88 1.88 0 0 1 2.036 0" />
+        <path d="M4.117 12.88c1.197 0 1.87-.673 1.87-1.87c0-1.196-.673-1.87-1.87-1.87s-1.87.674-1.87 1.87s.673 1.87 1.87 1.87m5.765.04c1.197 0 1.87-.674 1.87-1.87s-.673-1.87-1.87-1.87c-1.196 0-1.87.673-1.87 1.87c0 1.196.674 1.87 1.87 1.87" />
+      </g>
+    </svg>
+  );
+}
+
 function TabSectionHeader({
   divided = false,
   title,
@@ -882,6 +903,15 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
           </span>
 
           <span className="flex items-center gap-1">
+            {tab.incognito ? (
+              <span
+                className="inline-flex h-7 w-7 flex-none items-center justify-center rounded-full text-muted-foreground"
+                aria-label="Incognito tab"
+                title="Incognito tab"
+              >
+                <IncognitoIcon className="h-4 w-4" />
+              </span>
+            ) : null}
             {isBaseState ? (
               <span
                 className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"

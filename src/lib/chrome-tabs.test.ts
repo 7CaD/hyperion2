@@ -16,6 +16,7 @@ const makeManagedTab = (overrides: Partial<ManagedTab> = {}): ManagedTab => ({
   audible: false,
   discarded: false,
   id: 1,
+  incognito: false,
   index: 0,
   pinned: false,
   title: "Example",
@@ -61,6 +62,7 @@ describe("chrome tab helpers", () => {
         {
           active: false,
           id: 4,
+          incognito: true,
           index: 1,
           title: "Other window",
           url: "https://other.example",
@@ -96,6 +98,7 @@ describe("chrome tab helpers", () => {
           active: false,
           group: undefined,
           id: 4,
+          incognito: true,
           title: "Other window",
           windowId: 2,
         }),

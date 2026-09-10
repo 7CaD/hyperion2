@@ -6,6 +6,7 @@ export type ManagedTab = {
   group?: ManagedTabGroup;
   groupId?: number;
   id: number;
+  incognito: boolean;
   index: number;
   lastAccessed?: number;
   pinned: boolean;
@@ -47,6 +48,7 @@ const toManagedTab = (tab: chrome.tabs.Tab): ManagedTab | null => {
         ? tab.groupId
         : undefined,
     id: tab.id,
+    incognito: Boolean(tab.incognito),
     index: tab.index ?? 0,
     lastAccessed: tab.lastAccessed,
     pinned: Boolean(tab.pinned),
