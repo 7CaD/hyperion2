@@ -17,6 +17,7 @@ import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Kbd, KbdGroup } from "./components/ui/kbd";
 import { ScrollArea } from "./components/ui/scroll-area";
+import hyperionLogoUrl from "./assets/hyperion2.svg";
 import {
   activateTab,
   closeTab,
@@ -196,6 +197,10 @@ function IncognitoIcon({ className }: { className?: string }) {
       </g>
     </svg>
   );
+}
+
+function AppLogo({ className }: { className?: string }) {
+  return <img src={hyperionLogoUrl} alt="" aria-hidden="true" className={className} />;
 }
 
 function TabSectionHeader({
@@ -1280,6 +1285,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
     <div className="flex h-full min-h-0 flex-col">
       <section className="flex-none border-b border-border/70">
         <div className="relative">
+          <AppLogo className="pointer-events-none absolute left-4 top-1/2 h-6 w-6 -translate-y-1/2" />
           <Input
             ref={inputRef}
             value={query}
@@ -1290,7 +1296,7 @@ function TabSwitcherPage({ navigateTo }: { navigateTo: NavigateTo }) {
               setSelectedAdditionalActionIndex(0);
             }}
             onKeyDown={handleKeyDown}
-            className="h-14 rounded-none border-0 bg-transparent px-5 py-1 pr-24 text-base font-medium shadow-none ring-offset-transparent placeholder:text-base placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
+            className="h-14 rounded-none border-0 bg-transparent py-1 pl-14 pr-24 text-base font-medium shadow-none ring-offset-transparent placeholder:text-base placeholder:text-muted-foreground/70 focus-visible:ring-0 focus-visible:ring-offset-0"
             placeholder="Search tabs or type / for commands..."
             spellCheck={false}
           />
@@ -1404,11 +1410,14 @@ function SettingsPage({ navigateTo }: { navigateTo: NavigateTo }) {
     <div className="flex h-full min-h-0 flex-col">
       <header className="border-b border-border bg-card/80 px-4 py-3 backdrop-blur">
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-base font-semibold tracking-tight">Settings</h1>
-            <p className="text-xs text-muted-foreground">
-              Configure Hyperion2 preferences
-            </p>
+          <div className="flex min-w-0 items-center gap-3">
+            <AppLogo className="h-8 w-8 flex-none" />
+            <div className="min-w-0">
+              <h1 className="text-base font-semibold tracking-tight">Settings</h1>
+              <p className="truncate text-xs text-muted-foreground">
+                Configure Hyperion2 preferences
+              </p>
+            </div>
           </div>
           <Button
             type="button"
